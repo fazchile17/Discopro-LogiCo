@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LogiCo - Mis rutas</title>
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div class="shell">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main>
+        <div class="flex-between">
+            <h2 style="margin:0">Mis rutas</h2>
+            <label class="flex" style="gap:8px; font-size:14px">
+                <span>Disponible</span>
+                <input type="checkbox" id="toggle-disp">
+            </label>
+        </div>
+
+        <div class="card" id="ruta-activa" style="margin-top:16px">Cargando…</div>
+
+        <div class="card">
+            <h3 style="margin-top:0">Historial de rutas</h3>
+            <div id="historial">Cargando…</div>
+        </div>
+    </main>
+</div>
+
+<!-- Modal incidencia -->
+<div class="modal-backdrop" id="modal-incidencia">
+    <div class="modal">
+        <h3>Registrar incidencia</h3>
+        <form id="form-incidencia">
+            <input type="hidden" name="pedidoId">
+            <div class="row">
+                <div>
+                    <label>Tipo *</label>
+                    <select name="tipo" required>
+                        <option value="cliente_ausente">Cliente ausente</option>
+                        <option value="direccion_incorrecta">Dirección incorrecta</option>
+                        <option value="rechazo_cliente">Rechazo del cliente</option>
+                        <option value="accidente">Accidente</option>
+                        <option value="producto_danado">Producto dañado</option>
+                        <option value="otro">Otro</option>
+                    </select>
+                </div>
+            </div>
+            <div class="row">
+                <div>
+                    <label>Descripción *</label>
+                    <textarea name="descripcion" required></textarea>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" data-close>Cancelar</button>
+                <button type="submit" class="btn-danger">Registrar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="/js/config.js"></script>
+<script type="module">
+import { requireSession, apiFetch, toast, fmtDate, badgeEstado } from '/js/firebase-init.js';
+import { renderSidebar } from '/js/sidebar.js';
+
+let me;
+
+function cerrarModales() {
+    document.querySelectorAll('.modal-backdrop').forEach((el) => el.classList.remove('show'));
+}
+document.querySelectorAll('[data-close]').forEach((b) =>
+    b.addEventListener('click', cerrarModales)
+);
+
+async function cargar() {
+    const cont = document.getElementById('ruta-activa');
+    const hist = document.getElementById('historial');
+    cont.textContent = 'Cargando…';
+    hist.textContent = '';
+
+    try {
+        const rutas = await apiFetch(`/motoristas/${me.id_usuario}/rutas`);
+        const activa = rutas.find((r) => ['asignada', 'en_curso'].includes(r.estado_ruta));
+
+        if (!activa) {
+            cont.innerHTML = `
+                <div class="empty">
+                    <p><strong>Sin ruta activa</strong></p>
+                    <p class="muted">Cuando una operadora te asigne un pedido, aparecerá aquí.</p>
+                </div>`;
+        } else {
+            cont.innerHTML = `
+                <div class="flex-between">
+                    <h3 style="margin:0">Ruta ${activa.codigo_ruta}</h3>
+                    <div>${badgeEstado(activa.estado_pedido)}</div>
+                </div>
+                <p class="muted">Asignada ${fmtDate(activa.fecha_asignacion)}</p>
+
+                <div class="grid cols-2" style="margin-top:12px">
+                    <div>
+                        <p><strong>${activa.nombre_cliente}</strong> · ${activa.telefono_cliente}</p>
+                        <p>${activa.direccion_entrega}</p>
+                        <p class="muted">Programado: ${fmtDate(activa.fecha_programada)}</p>
+                    </div>
+                    <div>
+                        <p><strong>Detalle:</strong></p>
+                        <p>${activa.detalle_pedido}</p>
+                    </div>
+                </div>
+
+                <div class="flex" style="gap:8px; flex-wrap:wrap; margin-top:12px">
+                    ${activa.estado_ruta === 'asignada' ? `
+                        <button id="btn-iniciar" class="btn-success">Iniciar ruta</button>` : ''}
+                    ${activa.estado_ruta === 'en_curso' ? `
+                        <button id="btn-entregar" class="btn-success">Marcar entregado</button>` : ''}
+                    <button id="btn-incidencia" class="btn-danger">Registrar incidencia</button>
+                </div>
+            `;
+
+            document.getElementById('btn-iniciar')?.addEventListener('click', async () => {
+                try {
+                    await apiFetch(`/rutas/${activa.id_ruta}/iniciar`, { method: 'POST' });
+                    toast('Ruta iniciada', 'success');
+                    cargar();
+                } catch (e) { toast(e.message, 'error'); }
+            });
+            document.getElementById('btn-entregar')?.addEventListener('click', async () => {
+                try {
+                    await apiFetch(`/pedidos/${activa.pedido_id}/entregar`, {
+                        method: 'POST',
+                        body: JSON.stringify({ comentario: 'Entrega confirmada por motorista' }),
+                    });
+                    toast('Pedido entregado', 'success');
+                    cargar();
+                } catch (e) { toast(e.message, 'error'); }
+            });
+            document.getElementById('btn-incidencia')?.addEventListener('click', () => {
+                document.querySelector('#form-incidencia [name=pedidoId]').value = activa.pedido_id;
+                document.getElementById('modal-incidencia').classList.add('show');
+            });
+        }
+
+        const previas = rutas.filter((r) => ['finalizada', 'cancelada'].includes(r.estado_ruta));
+        if (!previas.length) {
+            hist.innerHTML = '<div class="empty">Sin rutas anteriores.</div>';
+        } else {
+            hist.innerHTML = `
+                <table>
+                    <thead><tr>
+                        <th>Ruta</th><th>Pedido</th><th>Cliente</th>
+                        <th>Estado pedido</th><th>Estado ruta</th><th>Finalizada</th>
+                    </tr></thead>
+                    <tbody>
+                    ${previas.map((r) => `
+                        <tr>
+                            <td>${r.codigo_ruta}</td>
+                            <td>${r.codigo_pedido}</td>
+                            <td>${r.nombre_cliente}</td>
+                            <td>${badgeEstado(r.estado_pedido)}</td>
+                            <td><span class="badge ${r.estado_ruta === 'finalizada' ? 'entregado' : 'no_entregado'}">${r.estado_ruta}</span></td>
+                            <td>${fmtDate(r.fecha_fin)}</td>
+                        </tr>
+                    `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+    } catch (e) {
+        toast(e.message, 'error');
+    }
+}
+
+document.getElementById('form-incidencia').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target));
+    try {
+        await apiFetch(`/pedidos/${data.pedidoId}/incidencias`, {
+            method: 'POST',
+            body: JSON.stringify({ tipo: data.tipo, descripcion: data.descripcion }),
+        });
+        toast('Incidencia registrada', 'success');
+        cerrarModales();
+        cargar();
+    } catch (err) { toast(err.message, 'error'); }
+});
+
+document.getElementById('toggle-disp').addEventListener('change', async (e) => {
+    try {
+        await apiFetch(`/motoristas/${me.id_usuario}/disponibilidad`, {
+            method: 'PUT',
+            body: JSON.stringify({ disponible: e.target.checked }),
+        });
+        toast(e.target.checked ? 'Disponible' : 'No disponible', 'success');
+    } catch (err) {
+        toast(err.message, 'error');
+        e.target.checked = !e.target.checked;
+    }
+});
+
+(async () => {
+    me = await requireSession();
+    if (me.rol !== 'motorista' && me.rol !== 'admin') {
+        window.location.href = '/dashboard.html';
+        return;
+    }
+    renderSidebar('motorista.html', me);
+    document.getElementById('toggle-disp').checked = true;
+    cargar();
+})();
+</script>
+</body>
+</html>

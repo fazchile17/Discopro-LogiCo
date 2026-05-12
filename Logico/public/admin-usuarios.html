@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LogiCo - Gestión de usuarios</title>
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div class="shell">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main>
+        <div class="flex-between">
+            <h2 style="margin:0">Gestión de usuarios</h2>
+            <button id="btn-nuevo">+ Crear usuario</button>
+        </div>
+
+        <div class="card" style="margin-top:16px">
+            <p class="muted" style="margin:0 0 12px">
+                Si filtras por rol o estado, el listado solo muestra usuarios que cumplan eso.
+                Tras crear un usuario o cambiar rol/estado, los filtros se reinician para que veas el resultado.
+            </p>
+            <div class="flex" style="gap:12px; flex-wrap:wrap">
+                <div>
+                    <label>Rol</label>
+                    <select id="filtro-rol">
+                        <option value="">Todos</option>
+                        <option value="admin">admin</option>
+                        <option value="operadora">operadora</option>
+                        <option value="motorista">motorista</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Estado</label>
+                    <select id="filtro-activo">
+                        <option value="">Todos</option>
+                        <option value="true">Activos</option>
+                        <option value="false">Inactivos</option>
+                    </select>
+                </div>
+                <button id="btn-filtrar" class="btn-secondary">Filtrar</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div id="tabla">Cargando…</div>
+        </div>
+    </main>
+</div>
+
+<!-- Modal: crear usuario -->
+<div class="modal-backdrop" id="modal-crear">
+    <div class="modal">
+        <h3>Crear usuario</h3>
+        <form id="form-crear">
+            <div class="row two">
+                <div>
+                    <label>Nombre *</label>
+                    <input name="nombre" required>
+                </div>
+                <div>
+                    <label>Apellido *</label>
+                    <input name="apellido" required>
+                </div>
+            </div>
+            <div class="row">
+                <div>
+                    <label>Correo *</label>
+                    <input type="email" name="correo" required>
+                </div>
+            </div>
+            <div class="row two">
+                <div>
+                    <label>Contraseña * (mín. 8 caracteres)</label>
+                    <input type="password" name="contrasena" required minlength="8">
+                </div>
+                <div>
+                    <label>Rol *</label>
+                    <select name="rol" required>
+                        <option value="operadora">operadora</option>
+                        <option value="motorista">motorista</option>
+                        <option value="admin">admin</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" id="btn-cancelar">Cancelar</button>
+                <button type="submit" id="btn-submit-crear">Crear</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: cambiar rol -->
+<div class="modal-backdrop" id="modal-rol">
+    <div class="modal">
+        <h3>Cambiar rol</h3>
+        <p class="muted" id="rol-info"></p>
+        <form id="form-rol">
+            <input type="hidden" name="id_usuario">
+            <div class="row">
+                <div>
+                    <label>Nuevo rol</label>
+                    <select name="rol" required>
+                        <option value="operadora">operadora</option>
+                        <option value="motorista">motorista</option>
+                        <option value="admin">admin</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" id="btn-cancelar-rol">Cancelar</button>
+                <button type="submit">Aplicar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="/js/config.js"></script>
+<script type="module">
+import { requireSession, apiFetch, toast, fmtDate, escapeHtml } from '/js/firebase-init.js';
+import { renderSidebar } from '/js/sidebar.js';
+
+let me;
+
+/**
+ * Si el usuario dejó filtros de rol/estado, tras crear o editar el siguiente GET
+ * puede excluir al usuario recién guardado (mismo patrón que farmacias + geo).
+ */
+function limpiarFiltrosListado() {
+    const r = document.getElementById('filtro-rol');
+    const a = document.getElementById('filtro-activo');
+    if (r) r.value = '';
+    if (a) a.value = '';
+}
+
+function habiaFiltrosActivos() {
+    return !!(
+        document.getElementById('filtro-rol')?.value
+        || document.getElementById('filtro-activo')?.value
+    );
+}
+
+function badgeRol(rol) {
+    const colores = {
+        admin: '#fee2e2;color:#991b1b',
+        operadora: '#dbeafe;color:#1e40af',
+        motorista: '#dcfce7;color:#166534',
+    };
+    return `<span class="badge" style="background:${colores[rol] || '#e2e8f0;color:#475569'}">${rol}</span>`;
+}
+
+/**
+ * @param {{ mergeUsuario?: object }} [opts]
+ */
+async function cargar(opts = {}) {
+    const rol = document.getElementById('filtro-rol').value;
+    const activo = document.getElementById('filtro-activo').value;
+    const cont = document.getElementById('tabla');
+    cont.textContent = 'Cargando…';
+
+    const params = new URLSearchParams();
+    if (rol) params.set('rol', rol);
+    if (activo) params.set('activo', activo);
+
+    try {
+        let usuarios = await apiFetch('/usuarios?' + params.toString());
+        if (!Array.isArray(usuarios)) {
+            console.error('[admin-usuarios] /usuarios no devolvió un array:', usuarios);
+            cont.innerHTML = '<div class="empty">Respuesta inválida del servidor.</div>';
+            toast('Error de formato en la lista de usuarios.', 'error');
+            return;
+        }
+
+        const mu = opts.mergeUsuario;
+        if (mu && mu.id_usuario != null
+            && !usuarios.some((x) => String(x.id_usuario) === String(mu.id_usuario))) {
+            console.warn(
+                '[admin-usuarios] GET /usuarios omitió el usuario recién guardado '
+                + `(id=${mu.id_usuario}). Comprueba GET /usuarios filtro vs rol creado.`
+            );
+            usuarios = [...usuarios, mu];
+        }
+
+        if (!usuarios.length) {
+            cont.innerHTML = '<div class="empty">No hay usuarios para los filtros.</div>';
+            return;
+        }
+        cont.innerHTML = `
+            <p class="muted" style="margin:0 0 12px">Mostrando <strong>${usuarios.length}</strong> usuario(s).</p>
+            <table>
+                <thead><tr>
+                    <th>Nombre</th><th>Correo</th><th>Rol</th>
+                    <th>Estado</th><th>Creado</th><th>Acciones</th>
+                </tr></thead>
+                <tbody>
+                ${usuarios.map((u) => {
+                    const esYo = String(u.id_usuario) === String(me.id_usuario);
+                    const esPrincipal = u.es_admin_principal === true;
+
+                    // Reglas frontend (defensa UX, NO de seguridad real):
+                    const puedeBorrar = !esYo && !esPrincipal &&
+                        (me.es_admin_principal || u.rol !== 'admin');
+                    const puedeToggle = !esYo && !esPrincipal &&
+                        (me.es_admin_principal || u.rol !== 'admin');
+                    const puedeRol = !esYo && !esPrincipal &&
+                        (me.es_admin_principal || u.rol !== 'admin');
+
+                    return `
+                    <tr>
+                        <td>
+                            ${esPrincipal ? '<span title="Admin principal" style="color:#d97706">★</span> ' : ''}
+                            <strong>${escapeHtml(u.nombre)} ${escapeHtml(u.apellido)}</strong>
+                            ${esYo ? '<span class="muted"> (tú)</span>' : ''}
+                        </td>
+                        <td>${escapeHtml(u.correo)}</td>
+                        <td>${badgeRol(u.rol)}</td>
+                        <td>
+                            ${u.activo
+                                ? '<span style="color:#16a34a">● Activo</span>'
+                                : '<span style="color:#dc2626">● Inactivo</span>'}
+                        </td>
+                        <td class="muted">${fmtDate(u.fecha_creacion)}</td>
+                        <td class="flex" style="gap:6px; flex-wrap:wrap">
+                            ${puedeRol
+                                ? `<button class="btn-secondary btn-sm" data-act="rol" data-id="${u.id_usuario}" data-rol="${u.rol}" data-nombre="${escapeHtml(u.nombre)} ${escapeHtml(u.apellido)}">Rol</button>`
+                                : ''}
+                            ${puedeToggle
+                                ? `<button class="btn-secondary btn-sm" data-act="toggle" data-id="${u.id_usuario}" data-activo="${u.activo}">${u.activo ? 'Desactivar' : 'Activar'}</button>`
+                                : ''}
+                            ${puedeBorrar
+                                ? `<button class="btn-danger btn-sm" data-act="borrar" data-id="${u.id_usuario}" data-correo="${escapeHtml(u.correo)}">Eliminar</button>`
+                                : ''}
+                        </td>
+                    </tr>`;
+                }).join('')}
+                </tbody>
+            </table>`;
+        cont.querySelectorAll('button[data-act]').forEach((b) => {
+            b.addEventListener('click', () => onAccion(b.dataset));
+        });
+    } catch (e) {
+        cont.innerHTML = '<div class="empty">Error al cargar.</div>';
+        toast(e.message, 'error');
+    }
+}
+
+async function onAccion({ act, id, activo, rol, nombre, correo }) {
+    if (act === 'borrar') {
+        if (!confirm(`¿Eliminar el usuario "${correo}"? Esta acción quedará registrada en auditoría.`)) return;
+        try {
+            await apiFetch(`/usuarios/${id}`, { method: 'DELETE' });
+            toast('Usuario eliminado.', 'success');
+            cargar();
+        } catch (e) { toast(e.message, 'error'); }
+    } else if (act === 'toggle') {
+        const nuevo = activo !== 'true';
+        try {
+            await apiFetch(`/usuarios/${id}/activo`, {
+                method: 'POST',
+                body: JSON.stringify({ activo: nuevo }),
+            });
+            const had = habiaFiltrosActivos();
+            limpiarFiltrosListado();
+            toast(
+                had
+                    ? `${nuevo ? 'Usuario activado' : 'Usuario desactivado'}. Filtros reiniciados.`
+                    : (nuevo ? 'Usuario activado.' : 'Usuario desactivado.'),
+                'success'
+            );
+            cargar();
+        } catch (e) { toast(e.message, 'error'); }
+    } else if (act === 'rol') {
+        const f = document.getElementById('form-rol');
+        f.id_usuario.value = id;
+        f.rol.value = rol;
+        document.getElementById('rol-info').textContent =
+            `Usuario: ${nombre} (rol actual: ${rol})`;
+        document.getElementById('modal-rol').classList.add('show');
+    }
+}
+
+document.getElementById('btn-nuevo').addEventListener('click', () => {
+    document.getElementById('modal-crear').classList.add('show');
+});
+document.getElementById('btn-cancelar').addEventListener('click', () => {
+    document.getElementById('modal-crear').classList.remove('show');
+});
+document.getElementById('btn-cancelar-rol').addEventListener('click', () => {
+    document.getElementById('modal-rol').classList.remove('show');
+});
+
+document.getElementById('form-crear').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('btn-submit-crear');
+    btn.disabled = true;
+    const form = e.target;
+    const data = Object.fromEntries(new FormData(form));
+    try {
+        const creado = await apiFetch('/usuarios', { method: 'POST', body: JSON.stringify(data) });
+        const had = habiaFiltrosActivos();
+        limpiarFiltrosListado();
+        toast(
+            had
+                ? `Usuario creado (#${creado.id_usuario}): ${creado.correo}. Puedes iniciar sesión con ese correo. Filtros reiniciados.`
+                : `Usuario creado (#${creado.id_usuario}): ${creado.correo}. Puedes iniciar sesión con ese correo.`,
+            'success'
+        );
+        document.getElementById('modal-crear').classList.remove('show');
+        form.reset();
+        cargar({ mergeUsuario: creado });
+    } catch (err) {
+        toast(err.message, 'error');
+    } finally {
+        btn.disabled = false;
+    }
+});
+
+document.getElementById('form-rol').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const id = f.id_usuario.value;
+    const rol = f.rol.value;
+    try {
+        await apiFetch(`/usuarios/${id}/rol`, {
+            method: 'POST',
+            body: JSON.stringify({ rol }),
+        });
+        const had = habiaFiltrosActivos();
+        limpiarFiltrosListado();
+        toast(
+            had
+                ? 'Rol actualizado. Filtros reiniciados.'
+                : 'Rol actualizado.',
+            'success'
+        );
+        document.getElementById('modal-rol').classList.remove('show');
+        cargar();
+    } catch (err) { toast(err.message, 'error'); }
+});
+
+(async () => {
+    me = await requireSession();
+    if (me.rol !== 'admin') {
+        toast('Acceso denegado', 'error');
+        window.location.href = '/dashboard.html';
+        return;
+    }
+    renderSidebar('admin-usuarios.html', me);
+    document.getElementById('btn-filtrar').addEventListener('click', cargar);
+    cargar();
+})();
+</script>
+</body>
+</html>

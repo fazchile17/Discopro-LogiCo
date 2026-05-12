@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LogiCo - Auditoría</title>
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div class="shell">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main>
+        <h2>Panel de auditoría</h2>
+
+        <div class="card">
+            <div class="flex" style="gap:12px; flex-wrap:wrap">
+                <div>
+                    <label>Acción</label>
+                    <select id="filtro-accion">
+                        <option value="">Todas</option>
+                        <option value="usuario_creado">usuario_creado</option>
+                        <option value="usuario_eliminado">usuario_eliminado</option>
+                        <option value="usuario_desactivado">usuario_desactivado</option>
+                        <option value="usuario_activado">usuario_activado</option>
+                        <option value="rol_cambiado">rol_cambiado</option>
+                        <option value="farmacia_creada">farmacia_creada</option>
+                        <option value="farmacia_actualizada">farmacia_actualizada</option>
+                        <option value="farmacia_desactivada">farmacia_desactivada</option>
+                        <option value="farmacia_activada">farmacia_activada</option>
+                        <option value="intento_bloqueado">intento_bloqueado</option>
+                        <option value="transferencia_admin_principal">transferencia_admin_principal</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Resultado</label>
+                    <select id="filtro-exito">
+                        <option value="">Todos</option>
+                        <option value="true">Éxito</option>
+                        <option value="false">Bloqueado / fallido</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Límite</label>
+                    <select id="filtro-limit">
+                        <option value="100">100</option>
+                        <option value="200" selected>200</option>
+                        <option value="500">500</option>
+                    </select>
+                </div>
+                <button id="btn-filtrar" class="btn-secondary">Filtrar</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="flex-between" style="margin-bottom:8px">
+                <h3 style="margin:0">Acciones críticas</h3>
+                <span class="muted" id="total"></span>
+            </div>
+            <div id="tabla">Cargando…</div>
+        </div>
+    </main>
+</div>
+
+<div id="toast"></div>
+
+<script src="/js/config.js"></script>
+<script type="module">
+import { requireSession, apiFetch, toast, fmtDate, escapeHtml } from '/js/firebase-init.js';
+import { renderSidebar } from '/js/sidebar.js';
+
+let me;
+
+function badgeAccion(accion, exito) {
+    if (!exito) return `<span class="badge" style="background:#fee2e2;color:#991b1b">${accion}</span>`;
+    if (accion.startsWith('usuario_eliminado')) return `<span class="badge" style="background:#fee2e2;color:#991b1b">${accion}</span>`;
+    if (accion.includes('rol_cambiado') || accion.includes('transferencia')) {
+        return `<span class="badge" style="background:#fef3c7;color:#92400e">${accion}</span>`;
+    }
+    if (accion.includes('creado') || accion.includes('activado')) {
+        return `<span class="badge" style="background:#dcfce7;color:#166534">${accion}</span>`;
+    }
+    if (accion.includes('desactiv')) {
+        return `<span class="badge" style="background:#f3e8ff;color:#6b21a8">${accion}</span>`;
+    }
+    return `<span class="badge" style="background:#dbeafe;color:#1e40af">${accion}</span>`;
+}
+
+function detalleHTML(detalle) {
+    if (!detalle) return '<span class="muted">-</span>';
+    let parsed = detalle;
+    try {
+        parsed = JSON.parse(detalle);
+    } catch (_) { /* no es JSON, dejar texto */ }
+    if (typeof parsed === 'string') return escapeHtml(parsed);
+    return `<pre style="margin:0; font-size:11px; background:#f8fafc; padding:6px 8px; border-radius:6px; max-width:380px; white-space:pre-wrap">${escapeHtml(JSON.stringify(parsed, null, 2))}</pre>`;
+}
+
+async function cargar() {
+    const params = new URLSearchParams();
+    const accion = document.getElementById('filtro-accion').value;
+    const exito = document.getElementById('filtro-exito').value;
+    const limit = document.getElementById('filtro-limit').value;
+    if (accion) params.set('accion', accion);
+    if (exito) params.set('exito', exito);
+    if (limit) params.set('limit', limit);
+
+    const cont = document.getElementById('tabla');
+    cont.textContent = 'Cargando…';
+    try {
+        const filas = await apiFetch('/auditoria?' + params.toString());
+        document.getElementById('total').textContent = `${filas.length} registros`;
+        if (!filas.length) {
+            cont.innerHTML = '<div class="empty">Sin registros.</div>';
+            return;
+        }
+        cont.innerHTML = `
+            <table>
+                <thead><tr>
+                    <th>Fecha</th><th>Usuario</th><th>Acción</th>
+                    <th>Entidad</th><th>Detalle</th><th>IP</th>
+                </tr></thead>
+                <tbody>
+                ${filas.map((a) => `
+                    <tr>
+                        <td class="muted">${fmtDate(a.fecha_hora)}</td>
+                        <td>
+                            <div>${a.usuario_nombre ? escapeHtml(a.usuario_nombre) : '<span class="muted">(sistema)</span>'}</div>
+                            <div class="muted" style="font-size:11px">${a.usuario_correo ? escapeHtml(a.usuario_correo) : ''}</div>
+                        </td>
+                        <td>${badgeAccion(a.accion, a.exito)}</td>
+                        <td>
+                            ${a.entidad_afectada ? escapeHtml(a.entidad_afectada) : '-'}
+                            ${a.id_entidad ? `<span class="muted">#${a.id_entidad}</span>` : ''}
+                        </td>
+                        <td>${detalleHTML(a.detalle)}</td>
+                        <td class="muted" style="font-size:11px">${a.ip || '-'}</td>
+                    </tr>
+                `).join('')}
+                </tbody>
+            </table>`;
+    } catch (e) {
+        cont.innerHTML = '<div class="empty">Error al cargar.</div>';
+        toast(e.message, 'error');
+    }
+}
+
+(async () => {
+    me = await requireSession();
+    if (me.rol !== 'admin') {
+        toast('Acceso denegado', 'error');
+        window.location.href = '/dashboard.html';
+        return;
+    }
+    renderSidebar('admin-auditoria.html', me);
+    document.getElementById('btn-filtrar').addEventListener('click', cargar);
+    cargar();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LogiCo - Iniciar sesión</title>
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div class="login-shell">
+    <div class="login-card">
+        <h1>LogiCo</h1>
+        <p class="subtitle">Sistema logístico empresarial</p>
+
+        <form id="login-form">
+            <div style="margin-bottom:14px">
+                <label>Correo</label>
+                <input type="email" id="email" autocomplete="email" required>
+            </div>
+            <div style="margin-bottom:18px">
+                <label>Contraseña</label>
+                <input type="password" id="password" autocomplete="current-password" required>
+            </div>
+            <button type="submit" id="btn-submit" style="width:100%; justify-content:center">
+                Iniciar sesión
+            </button>
+        </form>
+
+        <p class="muted center" style="margin-top:24px">
+            ¿Problemas para entrar? Contacta al administrador.
+        </p>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="/js/config.js"></script>
+<script type="module">
+import {
+    auth,
+    signInWithEmailAndPassword,
+    onAuthStateChanged,
+    toast,
+} from '/js/firebase-init.js';
+
+onAuthStateChanged(auth, (user) => {
+    if (user) window.location.href = '/dashboard.html';
+});
+
+const form = document.getElementById('login-form');
+form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('btn-submit');
+    btn.disabled = true;
+    btn.textContent = 'Verificando...';
+    try {
+        await signInWithEmailAndPassword(
+            auth,
+            document.getElementById('email').value.trim(),
+            document.getElementById('password').value
+        );
+        window.location.href = '/dashboard.html';
+    } catch (err) {
+        toast('Credenciales inválidas: ' + (err.code || err.message), 'error');
+        btn.disabled = false;
+        btn.textContent = 'Iniciar sesión';
+    }
+});
+</script>
+</body>
+</html>

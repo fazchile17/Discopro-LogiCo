@@ -1,0 +1,30 @@
+rules_version = '2';
+
+// =====================================================================
+// LogiCo - Firebase Storage Rules
+//
+// Controla quién puede subir/leer evidencias multimedia:
+//   - Solo usuarios autenticados pueden interactuar con Storage.
+//   - Los archivos viven en /evidencias/{pedidoId}/{kind}/{fileName}.
+//   - Tamaño máximo 8 MB y solo imágenes (image/*).
+// =====================================================================
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Evidencias asociadas a pedidos
+    match /evidencias/{pedidoId}/{kind}/{fileName} {
+      allow read: if request.auth != null;
+
+      allow write: if request.auth != null
+                    && request.resource.size < 8 * 1024 * 1024
+                    && request.resource.contentType.matches('image/.*')
+                    && kind in ['entrega', 'incidencia', 'firma', 'otro'];
+    }
+
+    // Por defecto: TODO bloqueado (principio de mínimo privilegio).
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LogiCo - Detalle de pedido</title>
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div class="shell">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main>
+        <a href="/pedidos.html" class="muted">← Volver a pedidos</a>
+        <div id="contenido" style="margin-top:16px">Cargando…</div>
+    </main>
+</div>
+
+<!-- Modal asignar motorista -->
+<div class="modal-backdrop" id="modal-motorista">
+    <div class="modal">
+        <h3>Asignar motorista</h3>
+        <div id="lista-motoristas">Cargando…</div>
+        <div class="modal-actions">
+            <button class="btn-secondary" data-close>Cancelar</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal reprogramar -->
+<div class="modal-backdrop" id="modal-reprogramar">
+    <div class="modal">
+        <h3>Reprogramar pedido</h3>
+        <form id="form-reprogramar">
+            <div class="row">
+                <div>
+                    <label>Nueva fecha *</label>
+                    <input type="datetime-local" name="fechaNueva" required>
+                </div>
+            </div>
+            <div class="row">
+                <div>
+                    <label>Motivo *</label>
+                    <textarea name="motivo" required></textarea>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" data-close>Cancelar</button>
+                <button type="submit">Reprogramar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal incidencia -->
+<div class="modal-backdrop" id="modal-incidencia">
+    <div class="modal">
+        <h3>Registrar incidencia</h3>
+        <form id="form-incidencia">
+            <div class="row">
+                <div>
+                    <label>Tipo *</label>
+                    <select name="tipo" required>
+                        <option value="cliente_ausente">Cliente ausente</option>
+                        <option value="direccion_incorrecta">Dirección incorrecta</option>
+                        <option value="rechazo_cliente">Rechazo del cliente</option>
+                        <option value="accidente">Accidente</option>
+                        <option value="producto_danado">Producto dañado</option>
+                        <option value="otro">Otro</option>
+                    </select>
+                </div>
+            </div>
+            <div class="row">
+                <div>
+                    <label>Descripción *</label>
+                    <textarea name="descripcion" required></textarea>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" data-close>Cancelar</button>
+                <button type="submit" class="btn-danger">Registrar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="/js/config.js"></script>
+<script type="module">
+import { requireSession, apiFetch, toast, fmtDate, badgeEstado } from '/js/firebase-init.js';
+import { renderSidebar } from '/js/sidebar.js';
+
+const params = new URLSearchParams(window.location.search);
+const pedidoId = Number(params.get('id'));
+
+function cerrarModales() {
+    document.querySelectorAll('.modal-backdrop').forEach((el) => el.classList.remove('show'));
+}
+document.querySelectorAll('[data-close]').forEach((b) =>
+    b.addEventListener('click', cerrarModales)
+);
+
+let me;
+
+async function cargar() {
+    const cont = document.getElementById('contenido');
+    cont.textContent = 'Cargando…';
+    try {
+        const p = await apiFetch(`/pedidos/${pedidoId}`);
+        const incidencias = await apiFetch(`/pedidos/${pedidoId}/incidencias`);
+
+        const sinAsignar = !p.motorista || p.estado_ruta === 'cancelada';
+        const puedeOperadora = ['operadora', 'admin'].includes(me.rol);
+
+        cont.innerHTML = `
+            <div class="flex-between">
+                <div>
+                    <h2 style="margin:0">${p.codigo_pedido}</h2>
+                    <p class="muted">Creado el ${fmtDate(p.fecha_creacion)} por ${p.operadora_crea}</p>
+                </div>
+                <div>${badgeEstado(p.estado_actual)}</div>
+            </div>
+
+            <div class="grid cols-2" style="margin-top:16px">
+                <div class="card">
+                    <h3 style="margin-top:0">Cliente</h3>
+                    <p><strong>${p.nombre_cliente}</strong><br>${p.telefono_cliente}</p>
+                    <p><span class="muted">Dirección:</span><br>${p.direccion_entrega}</p>
+                    <p><span class="muted">Programado:</span> ${fmtDate(p.fecha_programada)}</p>
+                    ${p.farmacia_nombre
+                        ? `<p><span class="muted">Farmacia origen:</span> <strong>${p.farmacia_nombre}</strong> <span class="muted">(${p.farmacia_comuna || ''}${p.farmacia_region ? ', ' + p.farmacia_region : ''})</span></p>`
+                        : ''}
+                </div>
+                <div class="card">
+                    <h3 style="margin-top:0">Detalle</h3>
+                    <p>${p.detalle_pedido}</p>
+                    ${p.observacion ? `<p class="muted">Obs: ${p.observacion}</p>` : ''}
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 style="margin-top:0">Ruta</h3>
+                ${p.codigo_ruta ? `
+                    <p><strong>${p.codigo_ruta}</strong> · ${badgeEstado(p.estado_ruta || 'asignada')}</p>
+                    <p>Motorista: <strong>${p.motorista || '-'}</strong></p>
+                ` : '<p class="muted">Sin ruta asignada.</p>'}
+
+                <div class="flex" style="gap:8px; flex-wrap:wrap; margin-top:8px">
+                    ${puedeOperadora && sinAsignar ? `
+                        <button id="btn-asignar">Asignar motorista</button>
+                    ` : ''}
+                    ${puedeOperadora ? `
+                        <button class="btn-secondary" id="btn-reprogramar">Reprogramar</button>
+                    ` : ''}
+                    <button class="btn-danger" id="btn-incidencia">Registrar incidencia</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 style="margin-top:0">Historial</h3>
+                <table>
+                    <thead><tr><th>Fecha</th><th>Estado</th><th>Comentario</th><th>Por</th></tr></thead>
+                    <tbody>
+                    ${(p.historial || []).map((h) => `
+                        <tr>
+                            <td>${fmtDate(h.fecha_hora)}</td>
+                            <td>${badgeEstado(h.nombre_estado)}</td>
+                            <td>${h.comentario || ''}</td>
+                            <td>${h.usuario}</td>
+                        </tr>
+                    `).join('')}
+                    </tbody>
+                </table>
+            </div>
+
+            ${incidencias.length ? `
+                <div class="card">
+                    <h3 style="margin-top:0">Incidencias</h3>
+                    <table>
+                        <thead><tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Por</th></tr></thead>
+                        <tbody>
+                        ${incidencias.map((i) => `
+                            <tr>
+                                <td>${fmtDate(i.fecha_hora)}</td>
+                                <td><span class="badge no_entregado">${i.tipo_incidencia}</span></td>
+                                <td>${i.descripcion}</td>
+                                <td>${i.usuario}</td>
+                            </tr>
+                        `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            ` : ''}
+        `;
+
+        document.getElementById('btn-asignar')?.addEventListener('click', abrirModalAsignar);
+        document.getElementById('btn-reprogramar')?.addEventListener('click', () =>
+            document.getElementById('modal-reprogramar').classList.add('show')
+        );
+        document.getElementById('btn-incidencia')?.addEventListener('click', () =>
+            document.getElementById('modal-incidencia').classList.add('show')
+        );
+    } catch (e) {
+        toast(e.message, 'error');
+        cont.innerHTML = `<div class="empty">${e.message}</div>`;
+    }
+}
+
+async function abrirModalAsignar() {
+    const m = document.getElementById('modal-motorista');
+    const cont = document.getElementById('lista-motoristas');
+    cont.textContent = 'Cargando…';
+    m.classList.add('show');
+    try {
+        const motoristas = await apiFetch('/motoristas/disponibles');
+        if (!motoristas.length) {
+            cont.innerHTML = '<div class="empty">No hay motoristas disponibles.</div>';
+            return;
+        }
+        cont.innerHTML = `
+            <table>
+                <thead><tr><th>Nombre</th><th>Correo</th><th></th></tr></thead>
+                <tbody>
+                ${motoristas.map((mo) => `
+                    <tr>
+                        <td>${mo.nombre} ${mo.apellido}</td>
+                        <td>${mo.correo}</td>
+                        <td><button class="btn-sm" data-mid="${mo.id_usuario}">Asignar</button></td>
+                    </tr>
+                `).join('')}
+                </tbody>
+            </table>
+        `;
+        cont.querySelectorAll('button[data-mid]').forEach((b) => {
+            b.addEventListener('click', async () => {
+                const mid = Number(b.dataset.mid);
+                try {
+                    await apiFetch('/rutas/asignar', {
+                        method: 'POST',
+                        body: JSON.stringify({ pedidoId, motoristaId: mid }),
+                    });
+                    toast('Motorista asignado', 'success');
+                    cerrarModales();
+                    cargar();
+                } catch (e) { toast(e.message, 'error'); }
+            });
+        });
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+document.getElementById('form-reprogramar').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target));
+    try {
+        await apiFetch(`/pedidos/${pedidoId}/reprogramar`, {
+            method: 'POST',
+            body: JSON.stringify({
+                fechaNueva: new Date(data.fechaNueva).toISOString(),
+                motivo: data.motivo,
+            }),
+        });
+        toast('Pedido reprogramado', 'success');
+        cerrarModales();
+        cargar();
+    } catch (err) { toast(err.message, 'error'); }
+});
+
+document.getElementById('form-incidencia').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target));
+    try {
+        await apiFetch(`/pedidos/${pedidoId}/incidencias`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+        toast('Incidencia registrada', 'success');
+        cerrarModales();
+        cargar();
+    } catch (err) { toast(err.message, 'error'); }
+});
+
+(async () => {
+    me = await requireSession();
+    renderSidebar('pedidos.html', me);
+    cargar();
+})();
+</script>
+</body>
+</html>

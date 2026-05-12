@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LogiCo - Dashboard</title>
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div class="shell">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main>
+        <h2>Resumen operativo</h2>
+
+        <div class="grid cols-3" id="kpis">
+            <div class="kpi"><div class="label">Pedidos activos</div><div class="value" id="kpi-activos">…</div></div>
+            <div class="kpi"><div class="label">En ruta</div><div class="value" id="kpi-en-ruta">…</div></div>
+            <div class="kpi"><div class="label">Entregados hoy</div><div class="value" id="kpi-entregados">…</div></div>
+        </div>
+
+        <div class="card" style="margin-top:24px">
+            <div class="flex-between">
+                <h3 style="margin:0">Últimos pedidos</h3>
+                <a href="/pedidos.html" class="btn btn-secondary btn-sm">Ver todos</a>
+            </div>
+            <div id="tabla-pedidos" style="margin-top:16px">Cargando…</div>
+        </div>
+    </main>
+</div>
+
+<div id="toast"></div>
+
+<script src="/js/config.js"></script>
+<script type="module">
+import { requireSession, apiFetch, toast, fmtDate, badgeEstado } from '/js/firebase-init.js';
+import { renderSidebar } from '/js/sidebar.js';
+
+(async () => {
+    const me = await requireSession();
+    if (me.rol === 'motorista') {
+        window.location.href = '/motorista.html';
+        return;
+    }
+    renderSidebar('dashboard.html', me);
+
+    try {
+        const pedidos = await apiFetch('/pedidos?limit=200');
+
+        const activos = pedidos.filter((p) => p.activo && p.estado_actual !== 'entregado').length;
+        const enRuta = pedidos.filter((p) => p.estado_actual === 'en_ruta').length;
+        const hoy = new Date().toISOString().slice(0, 10);
+        const entregadosHoy = pedidos.filter((p) =>
+            p.estado_actual === 'entregado' &&
+            new Date(p.fecha_creacion).toISOString().slice(0, 10) === hoy
+        ).length;
+
+        document.getElementById('kpi-activos').textContent = activos;
+        document.getElementById('kpi-en-ruta').textContent = enRuta;
+        document.getElementById('kpi-entregados').textContent = entregadosHoy;
+
+        const cont = document.getElementById('tabla-pedidos');
+        const ultimos = pedidos.slice(0, 10);
+        if (!ultimos.length) {
+            cont.innerHTML = '<div class="empty">Aún no hay pedidos registrados.</div>';
+            return;
+        }
+        cont.innerHTML = `
+            <table>
+                <thead><tr>
+                    <th>Código</th><th>Cliente</th><th>Programado</th>
+                    <th>Estado</th><th>Motorista</th>
+                </tr></thead>
+                <tbody>
+                ${ultimos.map((p) => `
+                    <tr>
+                        <td><a href="/pedido.html?id=${p.id_pedido}">${p.codigo_pedido}</a></td>
+                        <td>${p.nombre_cliente}</td>
+                        <td>${fmtDate(p.fecha_programada)}</td>
+                        <td>${badgeEstado(p.estado_actual)}</td>
+                        <td>${p.motorista_nombre ? p.motorista_nombre + ' ' + p.motorista_apellido : '<span class="muted">-</span>'}</td>
+                    </tr>
+                `).join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (e) {
+        toast(e.message, 'error');
+    }
+})();
+</script>
+</body>
+</html>

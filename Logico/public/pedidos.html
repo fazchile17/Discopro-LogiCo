@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LogiCo - Pedidos</title>
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div class="shell">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main>
+        <div class="flex-between">
+            <h2 style="margin:0">Pedidos</h2>
+            <a href="/crear-pedido.html" class="btn">+ Crear pedido</a>
+        </div>
+
+        <div class="card" style="margin-top:16px">
+            <div class="flex" style="gap:12px; flex-wrap:wrap">
+                <div>
+                    <label>Estado</label>
+                    <select id="filtro-estado">
+                        <option value="">Todos</option>
+                        <option value="retiro_receta">retiro_receta</option>
+                        <option value="retiro_pedido">retiro_pedido</option>
+                        <option value="en_ruta">en_ruta</option>
+                        <option value="entregado">entregado</option>
+                        <option value="no_entregado">no_entregado</option>
+                        <option value="reprogramado">reprogramado</option>
+                    </select>
+                </div>
+                <button id="btn-filtrar" class="btn-secondary">Filtrar</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div id="tabla">Cargando…</div>
+        </div>
+    </main>
+</div>
+
+<div id="toast"></div>
+
+<script src="/js/config.js"></script>
+<script type="module">
+import { requireSession, apiFetch, toast, fmtDate, badgeEstado } from '/js/firebase-init.js';
+import { renderSidebar } from '/js/sidebar.js';
+
+let me;
+
+async function cargar() {
+    const estado = document.getElementById('filtro-estado').value;
+    const cont = document.getElementById('tabla');
+    cont.textContent = 'Cargando…';
+    try {
+        const path = '/pedidos' + (estado ? `?estado=${estado}` : '');
+        const pedidos = await apiFetch(path);
+        if (!pedidos.length) {
+            cont.innerHTML = '<div class="empty">No hay pedidos para mostrar.</div>';
+            return;
+        }
+        cont.innerHTML = `
+            <table>
+                <thead><tr>
+                    <th>Código</th><th>Cliente</th><th>Dirección</th>
+                    <th>Farmacia origen</th>
+                    <th>Programado</th><th>Estado</th><th>Motorista</th><th></th>
+                </tr></thead>
+                <tbody>
+                ${pedidos.map((p) => `
+                    <tr>
+                        <td><strong>${p.codigo_pedido}</strong></td>
+                        <td>${p.nombre_cliente}<br><span class="muted">${p.telefono_cliente}</span></td>
+                        <td>${p.direccion_entrega}</td>
+                        <td>${p.farmacia_nombre
+                            ? `${p.farmacia_nombre}<br><span class="muted">${p.farmacia_comuna || ''}</span>`
+                            : '<span class="muted">-</span>'}</td>
+                        <td>${fmtDate(p.fecha_programada)}</td>
+                        <td>${badgeEstado(p.estado_actual)}</td>
+                        <td>${p.motorista_nombre ? p.motorista_nombre + ' ' + p.motorista_apellido : '<span class="muted">Sin asignar</span>'}</td>
+                        <td><a class="btn btn-secondary btn-sm" href="/pedido.html?id=${p.id_pedido}">Detalle</a></td>
+                    </tr>
+                `).join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (e) {
+        toast(e.message, 'error');
+        cont.innerHTML = '<div class="empty">Error al cargar.</div>';
+    }
+}
+
+(async () => {
+    me = await requireSession();
+    renderSidebar('pedidos.html', me);
+    document.getElementById('btn-filtrar').addEventListener('click', cargar);
+    cargar();
+})();
+</script>
+</body>
+</html>

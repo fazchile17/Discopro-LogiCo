@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LogiCo - Crear pedido</title>
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div class="shell">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main>
+        <h2>Crear pedido</h2>
+        <div class="card" style="max-width:720px">
+            <form id="form-pedido">
+                <div class="row two">
+                    <div>
+                        <label>Nombre del cliente *</label>
+                        <input name="nombre_cliente" required>
+                    </div>
+                    <div>
+                        <label>Teléfono *</label>
+                        <input name="telefono_cliente" required>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div>
+                        <label>Dirección de entrega *</label>
+                        <input name="direccion_entrega" required>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div>
+                        <label>Detalle del pedido *</label>
+                        <textarea name="detalle_pedido" required></textarea>
+                    </div>
+                </div>
+
+                <div class="row two">
+                    <div>
+                        <label>Fecha programada *</label>
+                        <input type="datetime-local" name="fecha_programada" required>
+                    </div>
+                    <div>
+                        <label>Estado inicial</label>
+                        <select name="estado_inicial">
+                            <option value="retiro_receta">retiro_receta</option>
+                            <option value="retiro_pedido">retiro_pedido</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div>
+                        <label>Farmacia origen (opcional)</label>
+                        <select name="farmacia_id" id="select-farmacia">
+                            <option value="">— Sin farmacia —</option>
+                        </select>
+                        <small class="muted">Las farmacias no requieren receta médica. Útil para pedidos despachados desde un punto logístico.</small>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div>
+                        <label>Observación (opcional)</label>
+                        <textarea name="observacion"></textarea>
+                    </div>
+                </div>
+
+                <div class="flex" style="justify-content:flex-end; margin-top:8px">
+                    <a href="/pedidos.html" class="btn btn-secondary">Cancelar</a>
+                    <button type="submit" id="btn-submit">Crear pedido</button>
+                </div>
+            </form>
+        </div>
+    </main>
+</div>
+
+<div id="toast"></div>
+
+<script src="/js/config.js"></script>
+<script type="module">
+import { requireSession, apiFetch, toast } from '/js/firebase-init.js';
+import { renderSidebar } from '/js/sidebar.js';
+
+(async () => {
+    const me = await requireSession();
+    if (!['operadora', 'admin'].includes(me.rol)) {
+        toast('Acceso denegado', 'error');
+        window.location.href = '/dashboard.html';
+        return;
+    }
+    renderSidebar('crear-pedido.html', me);
+
+    // Cargar farmacias activas para selector
+    try {
+        const farmacias = await apiFetch('/farmacias?soloActivas=true');
+        const sel = document.getElementById('select-farmacia');
+        farmacias.forEach((f) => {
+            const opt = document.createElement('option');
+            opt.value = f.id_farmacia;
+            // Etiqueta jerárquica: nombre — comuna (Región)
+            opt.textContent = `${f.nombre} — ${f.comuna} (${f.region_codigo})`;
+            sel.appendChild(opt);
+        });
+    } catch (_) {
+        // El selector es opcional; si falla, dejamos solo "sin farmacia".
+    }
+
+    const form = document.getElementById('form-pedido');
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('btn-submit');
+        btn.disabled = true;
+        const data = Object.fromEntries(new FormData(form));
+        data.fecha_programada = new Date(data.fecha_programada).toISOString();
+        if (!data.farmacia_id) delete data.farmacia_id;
+        try {
+            const p = await apiFetch('/pedidos', {
+                method: 'POST',
+                body: JSON.stringify(data),
+            });
+            toast(`Pedido creado: ${p.codigo_pedido}`, 'success');
+            setTimeout(() => { window.location.href = '/pedidos.html'; }, 800);
+        } catch (err) {
+            toast(err.message, 'error');
+            btn.disabled = false;
+        }
+    });
+})();
+</script>
+</body>
+</html>

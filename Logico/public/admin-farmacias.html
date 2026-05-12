@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LogiCo - Gestión de farmacias</title>
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div class="shell">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main>
+        <div class="flex-between">
+            <h2 style="margin:0">Gestión de farmacias</h2>
+            <button id="btn-nuevo">+ Crear farmacia</button>
+        </div>
+
+        <div class="card" style="margin-top:16px">
+            <p class="muted" style="margin:0 0 12px">
+                Si filtras por región o comuna, el listado solo muestra farmacias en ese lugar.
+                Tras crear o editar, los filtros se reinician para que siempre veas cambios recientes.
+            </p>
+            <div class="flex" style="gap:12px; flex-wrap:wrap; align-items:flex-end">
+                <div>
+                    <label>Región</label>
+                    <select id="filtro-region">
+                        <option value="">Todas</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Provincia</label>
+                    <select id="filtro-provincia" disabled>
+                        <option value="">Todas</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Comuna</label>
+                    <select id="filtro-comuna" disabled>
+                        <option value="">Todas</option>
+                    </select>
+                </div>
+                <label class="muted" style="display:flex; align-items:center; gap:6px; padding-bottom:10px">
+                    <input type="checkbox" id="ver-todas" style="width:auto"> Ver inactivas
+                </label>
+                <button id="btn-filtrar" class="btn-secondary">Aplicar</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div id="tabla">Cargando…</div>
+        </div>
+    </main>
+</div>
+
+<!-- Modal: crear / editar farmacia -->
+<div class="modal-backdrop" id="modal">
+    <div class="modal">
+        <h3 id="modal-titulo">Crear farmacia</h3>
+        <form id="form-farmacia">
+            <input type="hidden" name="id_farmacia">
+
+            <div class="row two">
+                <div>
+                    <label>Nombre *</label>
+                    <input name="nombre" required maxlength="120">
+                </div>
+                <div>
+                    <label>Teléfono</label>
+                    <input name="telefono" maxlength="30" placeholder="+56 ...">
+                </div>
+            </div>
+
+            <div class="row two">
+                <div>
+                    <label>Región *</label>
+                    <select id="form-region" required>
+                        <option value="">— Selecciona —</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Provincia *</label>
+                    <select id="form-provincia" disabled required>
+                        <option value="">— Selecciona región —</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="row">
+                <div>
+                    <label>Comuna *</label>
+                    <select name="comuna_id" id="form-comuna" disabled required>
+                        <option value="">— Selecciona provincia —</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="row">
+                <div>
+                    <label>Dirección (calle y número) *</label>
+                    <input name="direccion" required maxlength="255"
+                           placeholder="Ej. Av. Libertador Bernardo O'Higgins 1234">
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" id="btn-cancelar">Cancelar</button>
+                <button type="submit" id="btn-submit">Guardar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="/js/config.js"></script>
+<script type="module">
+import { requireSession, apiFetch, toast, fmtDate, escapeHtml } from '/js/firebase-init.js';
+import { renderSidebar } from '/js/sidebar.js';
+
+let me;
+let arbolGeo = [];   // [{id_region, nombre, codigo_romano, provincias:[{id_provincia, nombre, comunas:[...]}]}]
+
+// =================================================================
+// Helpers de dropdowns dependientes
+// =================================================================
+function llenarSelect(sel, items, { textKey = 'nombre', valueKey = 'id', placeholder = '— Selecciona —' } = {}) {
+    sel.innerHTML = `<option value="">${placeholder}</option>` +
+        items.map((x) => `<option value="${x[valueKey]}">${escapeHtml(x[textKey])}</option>`).join('');
+}
+
+function setupDropdowns({ regionSel, provinciaSel, comunaSel, includeAllOption = false }) {
+    const filtroPlaceholder = includeAllOption ? 'Todas' : '— Selecciona —';
+
+    function refrescarRegiones() {
+        const items = arbolGeo.map((r) => ({
+            id: r.id_region, nombre: `${r.codigo_romano} - ${r.nombre}`,
+        }));
+        llenarSelect(regionSel, items, { placeholder: filtroPlaceholder });
+        provinciaSel.innerHTML = `<option value="">${includeAllOption ? 'Todas' : '— Selecciona región —'}</option>`;
+        comunaSel.innerHTML    = `<option value="">${includeAllOption ? 'Todas' : '— Selecciona provincia —'}</option>`;
+        provinciaSel.disabled = true;
+        comunaSel.disabled = true;
+    }
+
+    function onRegionChange() {
+        const idR = Number(regionSel.value);
+        if (!idR) {
+            provinciaSel.disabled = true;
+            comunaSel.disabled = true;
+            provinciaSel.innerHTML = `<option value="">${includeAllOption ? 'Todas' : '— Selecciona región —'}</option>`;
+            comunaSel.innerHTML    = `<option value="">${includeAllOption ? 'Todas' : '— Selecciona provincia —'}</option>`;
+            return;
+        }
+        const region = arbolGeo.find((r) => r.id_region === idR);
+        const provincias = (region?.provincias || []).map((p) => ({
+            id: p.id_provincia, nombre: p.nombre,
+        }));
+        llenarSelect(provinciaSel, provincias, { placeholder: filtroPlaceholder });
+        provinciaSel.disabled = provincias.length === 0;
+        comunaSel.disabled = true;
+        comunaSel.innerHTML = `<option value="">${includeAllOption ? 'Todas' : '— Selecciona provincia —'}</option>`;
+    }
+
+    function onProvinciaChange() {
+        const idR = Number(regionSel.value);
+        const idP = Number(provinciaSel.value);
+        if (!idR || !idP) {
+            comunaSel.disabled = true;
+            comunaSel.innerHTML = `<option value="">${includeAllOption ? 'Todas' : '— Selecciona provincia —'}</option>`;
+            return;
+        }
+        const region = arbolGeo.find((r) => r.id_region === idR);
+        const provincia = region?.provincias.find((p) => p.id_provincia === idP);
+        const comunas = (provincia?.comunas || []).map((c) => ({
+            id: c.id_comuna, nombre: c.nombre,
+        }));
+        llenarSelect(comunaSel, comunas, { placeholder: filtroPlaceholder });
+        comunaSel.disabled = comunas.length === 0;
+    }
+
+    regionSel.addEventListener('change', onRegionChange);
+    provinciaSel.addEventListener('change', onProvinciaChange);
+
+    refrescarRegiones();
+
+    // Permite preseleccionar valores (al editar una farmacia existente)
+    return function preselect({ idRegion, idProvincia, idComuna }) {
+        if (idRegion) {
+            regionSel.value = String(idRegion);
+            onRegionChange();
+            if (idProvincia) {
+                provinciaSel.value = String(idProvincia);
+                onProvinciaChange();
+                if (idComuna) {
+                    comunaSel.value = String(idComuna);
+                }
+            }
+        }
+    };
+}
+
+// =================================================================
+// Filtros geográficos (sidebar de la tabla)
+// =================================================================
+/**
+ * Si el usuario filtra por región/provincia/comuna y luego crea o edita
+ * una farmacia en OTRO lugar, el siguiente GET seguiría aplicando los
+ * mismos query params → la nueva fila "no aparece" aunque el POST fue 201.
+ * Por eso, tras cualquier mutación, limpiamos los filtros y recargamos todo.
+ */
+function limpiarFiltrosGeograficos() {
+    const r = document.getElementById('filtro-region');
+    if (!r) return;
+    // Valor vacío = "Todas"; el listener de setupDropdowns resetea provincia y comuna.
+    r.value = '';
+    r.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function habiaFiltrosGeograficosActivos() {
+    return !!(
+        document.getElementById('filtro-region')?.value
+        || document.getElementById('filtro-provincia')?.value
+        || document.getElementById('filtro-comuna')?.value
+    );
+}
+
+// =================================================================
+// Listado
+// =================================================================
+/**
+ * @param {{ mergeFarmacia?: object }} [opts]
+ * Si el GET /farmacias llega sin una fila que sí devolvió POST/PUT (casos raros:
+ * réplica de lectura, despliegue inconsistente, etc.), fusionamos esa fila para
+ * que la UI no contradiga al 201/200 y dejamos rastro en consola.
+ */
+async function cargarTabla(opts = {}) {
+    const cont = document.getElementById('tabla');
+    cont.textContent = 'Cargando…';
+
+    const verTodas = document.getElementById('ver-todas').checked;
+    const regionId = document.getElementById('filtro-region').value;
+    const provId   = document.getElementById('filtro-provincia').value;
+    const comunaId = document.getElementById('filtro-comuna').value;
+
+    const params = new URLSearchParams();
+    params.set('soloActivas', verTodas ? 'false' : 'true');
+    if (regionId) params.set('regionId', regionId);
+    if (provId)   params.set('provinciaId', provId);
+    if (comunaId) params.set('comunaId', comunaId);
+
+    try {
+        let farmacias = await apiFetch('/farmacias?' + params.toString());
+
+        if (!Array.isArray(farmacias)) {
+            console.error('[admin-farmacias] /farmacias no devolvió un array:', farmacias);
+            cont.innerHTML = '<div class="empty">Respuesta inválida del servidor (no es un listado).</div>';
+            toast('Error de formato en la lista de farmacias.', 'error');
+            return;
+        }
+
+        const mf = opts.mergeFarmacia;
+        if (mf && mf.id_farmacia != null
+            && !farmacias.some((x) => String(x.id_farmacia) === String(mf.id_farmacia))) {
+            console.warn(
+                '[admin-farmacias] GET /farmacias omitió la farmacia recién guardada '
+                + `(id=${mf.id_farmacia}). Comprueba en red GET /farmacias/${mf.id_farmacia} `
+                + 'y que la Cloud Function desplegada use la misma BD que persiste el POST.'
+            );
+            farmacias = [...farmacias, mf];
+        }
+
+        if (!farmacias.length) {
+            cont.innerHTML = '<div class="empty">No hay farmacias para los filtros aplicados.</div>';
+            return;
+        }
+
+        const safe = (v) => escapeHtml(v ?? '');
+
+        cont.innerHTML = `
+            <p class="muted" style="margin:0 0 12px">Mostrando <strong>${farmacias.length}</strong> farmacia(s).</p>
+            <table>
+                <thead><tr>
+                    <th>Nombre</th><th>Dirección</th><th>Comuna</th>
+                    <th>Provincia</th><th>Región</th>
+                    <th>Teléfono</th><th>Estado</th><th>Creada</th><th>Acciones</th>
+                </tr></thead>
+                <tbody>
+                ${farmacias.map((f) => `
+                    <tr>
+                        <td><strong>${safe(f.nombre)}</strong></td>
+                        <td>${safe(f.direccion)}</td>
+                        <td>${safe(f.comuna)}</td>
+                        <td>${safe(f.provincia)}</td>
+                        <td><span class="muted">${safe(f.region_codigo)}</span> ${safe(f.region)}</td>
+                        <td>${safe(f.telefono || '-')}</td>
+                        <td>
+                            ${f.activa
+                                ? '<span style="color:#16a34a">● Activa</span>'
+                                : '<span style="color:#dc2626">● Inactiva</span>'}
+                        </td>
+                        <td class="muted">${fmtDate(f.fecha_creacion)}</td>
+                        <td class="flex" style="gap:6px; flex-wrap:wrap">
+                            <button class="btn-secondary btn-sm"
+                                data-act="editar"
+                                data-id="${f.id_farmacia}">Editar</button>
+                            ${f.activa
+                                ? `<button class="btn-danger btn-sm" data-act="desactivar" data-id="${f.id_farmacia}">Desactivar</button>`
+                                : `<button class="btn-success btn-sm" data-act="activar" data-id="${f.id_farmacia}">Activar</button>`}
+                        </td>
+                    </tr>
+                `).join('')}
+                </tbody>
+            </table>`;
+
+        cont.querySelectorAll('button[data-act]').forEach((b) => {
+            b.addEventListener('click', () => onAccion(b.dataset, farmacias));
+        });
+    } catch (e) {
+        console.error('[admin-farmacias] cargarTabla:', e);
+        cont.innerHTML = '<div class="empty">Error al cargar.</div>';
+        toast(e.message, 'error');
+    }
+}
+
+// =================================================================
+// Modal: abrir / guardar
+// =================================================================
+let preselectFormDropdowns = null;   // función devuelta por setupDropdowns
+
+function abrirEditor(farmacia = null) {
+    const f = document.getElementById('form-farmacia');
+    f.reset();
+    document.getElementById('modal-titulo').textContent =
+        farmacia ? 'Editar farmacia' : 'Crear farmacia';
+
+    if (farmacia) {
+        f.id_farmacia.value = farmacia.id_farmacia;
+        f.nombre.value      = farmacia.nombre || '';
+        f.direccion.value   = farmacia.direccion || '';
+        f.telefono.value    = farmacia.telefono || '';
+        if (preselectFormDropdowns) {
+            preselectFormDropdowns({
+                idRegion: farmacia.id_region,
+                idProvincia: farmacia.id_provincia,
+                idComuna: farmacia.comuna_id,
+            });
+        }
+    } else {
+        f.id_farmacia.value = '';
+        // Reset cascada de dropdowns
+        document.getElementById('form-region').value = '';
+        document.getElementById('form-region').dispatchEvent(new Event('change'));
+    }
+
+    document.getElementById('modal').classList.add('show');
+}
+
+async function onAccion({ act, id }, farmacias) {
+    if (act === 'editar') {
+        const farmacia = farmacias.find((x) => String(x.id_farmacia) === String(id));
+        if (farmacia) abrirEditor(farmacia);
+    } else if (act === 'desactivar') {
+        if (!confirm('¿Desactivar esta farmacia?')) return;
+        try {
+            await apiFetch(`/farmacias/${id}/desactivar`, { method: 'POST' });
+            const had = habiaFiltrosGeograficosActivos();
+            limpiarFiltrosGeograficos();
+            toast(
+                had
+                    ? 'Farmacia desactivada. Se reiniciaron los filtros geográficos para mostrar la lista completa.'
+                    : 'Farmacia desactivada.',
+                'success'
+            );
+            cargarTabla();
+        } catch (e) { toast(e.message, 'error'); }
+    } else if (act === 'activar') {
+        try {
+            await apiFetch(`/farmacias/${id}/activar`, { method: 'POST' });
+            const had = habiaFiltrosGeograficosActivos();
+            limpiarFiltrosGeograficos();
+            toast(
+                had
+                    ? 'Farmacia activada. Se reiniciaron los filtros geográficos para mostrar la lista completa.'
+                    : 'Farmacia activada.',
+                'success'
+            );
+            cargarTabla();
+        } catch (e) { toast(e.message, 'error'); }
+    }
+}
+
+document.getElementById('btn-nuevo').addEventListener('click', () => abrirEditor());
+document.getElementById('btn-cancelar').addEventListener('click', () => {
+    document.getElementById('modal').classList.remove('show');
+});
+document.getElementById('ver-todas').addEventListener('change', cargarTabla);
+document.getElementById('btn-filtrar').addEventListener('click', cargarTabla);
+
+document.getElementById('form-farmacia').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('btn-submit');
+    btn.disabled = true;
+
+    const f = e.target;
+    const id = f.id_farmacia.value;
+    const data = {
+        nombre: f.nombre.value.trim(),
+        direccion: f.direccion.value.trim(),
+        telefono: f.telefono.value.trim() || null,
+        comuna_id: Number(f.comuna_id.value),
+    };
+
+    if (!data.comuna_id) {
+        toast('Selecciona región, provincia y comuna.', 'error');
+        btn.disabled = false;
+        return;
+    }
+
+    try {
+        let mergeFarmacia = null;
+        if (id) {
+            mergeFarmacia = await apiFetch(`/farmacias/${id}`, {
+                method: 'PUT', body: JSON.stringify(data),
+            });
+            const had = habiaFiltrosGeograficosActivos();
+            limpiarFiltrosGeograficos();
+            toast(
+                had
+                    ? `Farmacia #${mergeFarmacia.id_farmacia} actualizada (${mergeFarmacia.nombre}). Filtros reiniciados.`
+                    : `Farmacia #${mergeFarmacia.id_farmacia} actualizada: ${mergeFarmacia.nombre}.`,
+                'success'
+            );
+        } else {
+            mergeFarmacia = await apiFetch('/farmacias', {
+                method: 'POST', body: JSON.stringify(data),
+            });
+            const had = habiaFiltrosGeograficosActivos();
+            limpiarFiltrosGeograficos();
+            toast(
+                had
+                    ? `Farmacia guardada en BD (#${mergeFarmacia.id_farmacia}): ${mergeFarmacia.nombre}. Filtros reiniciados; recargando lista…`
+                    : `Farmacia guardada en BD (#${mergeFarmacia.id_farmacia}): ${mergeFarmacia.nombre}.`,
+                'success'
+            );
+        }
+        document.getElementById('modal').classList.remove('show');
+        cargarTabla({ mergeFarmacia });
+    } catch (err) {
+        if (err.status === 409) {
+            toast('Ya existe una farmacia con ese mismo nombre en esa comuna. Usa otro nombre o otra comuna.', 'error');
+        } else {
+            toast(err.message, 'error');
+        }
+    } finally {
+        btn.disabled = false;
+    }
+});
+
+// =================================================================
+// Bootstrap
+// =================================================================
+(async () => {
+    me = await requireSession();
+    if (me.rol !== 'admin') {
+        toast('Acceso denegado', 'error');
+        window.location.href = '/dashboard.html';
+        return;
+    }
+    renderSidebar('admin-farmacias.html', me);
+
+    try {
+        arbolGeo = await apiFetch('/geografia/arbol');
+    } catch (e) {
+        toast('No se pudo cargar el catálogo geográfico: ' + e.message, 'error');
+        arbolGeo = [];
+    }
+
+    // Filtros (con opción "Todas")
+    setupDropdowns({
+        regionSel:    document.getElementById('filtro-region'),
+        provinciaSel: document.getElementById('filtro-provincia'),
+        comunaSel:    document.getElementById('filtro-comuna'),
+        includeAllOption: true,
+    });
+
+    // Formulario (sin "Todas", obligatorio)
+    preselectFormDropdowns = setupDropdowns({
+        regionSel:    document.getElementById('form-region'),
+        provinciaSel: document.getElementById('form-provincia'),
+        comunaSel:    document.getElementById('form-comuna'),
+        includeAllOption: false,
+    });
+
+    cargarTabla();
+})();
+</script>
+</body>
+</html>

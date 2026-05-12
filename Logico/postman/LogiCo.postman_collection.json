@@ -1,0 +1,186 @@
+{
+  "info": {
+    "name": "LogiCo API",
+    "_postman_id": "8b1f0d20-logico-2026-04",
+    "description": "Colección oficial de pruebas para la API LogiCo. Cubre flujo end-to-end: login → crear pedido → asignar motorista → iniciar ruta → entregar / incidencia / reprogramar.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://127.0.0.1:5001/logico-20f73/us-central1/api" },
+    { "key": "idToken", "value": "" },
+    { "key": "pedidoId", "value": "" },
+    { "key": "rutaId", "value": "" },
+    { "key": "motoristaId", "value": "3" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{idToken}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "0. Health (público)",
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "GET",
+        "url": "{{baseUrl}}/health"
+      },
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "pm.test('200 OK', () => pm.response.to.have.status(200));",
+          "pm.test('responde DB', () => pm.expect(pm.response.json().db).to.include('PostgreSQL'));"
+        ]}
+      }]
+    },
+    {
+      "name": "1. /me (sesión actual)",
+      "request": { "method": "GET", "url": "{{baseUrl}}/me" },
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "pm.test('200', () => pm.response.to.have.status(200));",
+          "pm.test('rol presente', () => pm.expect(pm.response.json().rol).to.be.oneOf(['operadora','motorista','admin']));"
+        ]}
+      }]
+    },
+    {
+      "name": "2. Crear pedido (operadora)",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/pedidos",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"nombre_cliente\": \"Cliente Postman\",\n  \"telefono_cliente\": \"7777-0000\",\n  \"direccion_entrega\": \"Calle Falsa 123\",\n  \"detalle_pedido\": \"Receta digital + suplemento\",\n  \"fecha_programada\": \"2026-05-15T14:00:00Z\"\n}" }
+      },
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "pm.test('201', () => pm.response.to.have.status(201));",
+          "const j = pm.response.json();",
+          "pm.collectionVariables.set('pedidoId', j.id_pedido);",
+          "pm.test('codigo_pedido generado', () => pm.expect(j.codigo_pedido).to.be.a('string'));"
+        ]}
+      }]
+    },
+    {
+      "name": "3. Listar pedidos",
+      "request": { "method": "GET", "url": "{{baseUrl}}/pedidos" },
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "pm.test('200', () => pm.response.to.have.status(200));",
+          "pm.test('array', () => pm.expect(pm.response.json()).to.be.an('array'));"
+        ]}
+      }]
+    },
+    {
+      "name": "4. Obtener pedido",
+      "request": { "method": "GET", "url": "{{baseUrl}}/pedidos/{{pedidoId}}" },
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "pm.test('200', () => pm.response.to.have.status(200));",
+          "pm.test('historial presente', () => pm.expect(pm.response.json().historial).to.be.an('array'));"
+        ]}
+      }]
+    },
+    {
+      "name": "5. Listar motoristas disponibles",
+      "request": { "method": "GET", "url": "{{baseUrl}}/motoristas/disponibles" }
+    },
+    {
+      "name": "6. Asignar motorista",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/rutas/asignar",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{ \"pedidoId\": {{pedidoId}}, \"motoristaId\": {{motoristaId}} }" }
+      },
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "pm.test('201', () => pm.response.to.have.status(201));",
+          "pm.collectionVariables.set('rutaId', pm.response.json().id_ruta);"
+        ]}
+      }]
+    },
+    {
+      "name": "7. Asignar motorista (debe fallar - ya asignado)",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/rutas/asignar",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{ \"pedidoId\": {{pedidoId}}, \"motoristaId\": {{motoristaId}} }" }
+      },
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "pm.test('409 conflicto (regla 2)', () => pm.expect(pm.response.code).to.be.oneOf([409, 422]));"
+        ]}
+      }]
+    },
+    {
+      "name": "8. Iniciar ruta (motorista - cambiar token)",
+      "request": { "method": "POST", "url": "{{baseUrl}}/rutas/{{rutaId}}/iniciar" }
+    },
+    {
+      "name": "9. Entregar pedido (motorista)",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/pedidos/{{pedidoId}}/entregar",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{ \"comentario\": \"Entregado al cliente\" }" }
+      }
+    },
+    {
+      "name": "10. Registrar incidencia",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/pedidos/{{pedidoId}}/incidencias",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{ \"tipo\": \"cliente_ausente\", \"descripcion\": \"Tocaron timbre, no respondieron\" }" }
+      }
+    },
+    {
+      "name": "11. Reprogramar pedido",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/pedidos/{{pedidoId}}/reprogramar",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{ \"fechaNueva\": \"2026-05-20T10:00:00Z\", \"motivo\": \"Cliente solicitó nueva fecha\" }" }
+      }
+    },
+    {
+      "name": "12. Auditoría (solo admin)",
+      "request": { "method": "GET", "url": "{{baseUrl}}/audit?limit=50" }
+    },
+    {
+      "name": "13. SQL Injection (debe fallar limpio)",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/pedidos",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{ \"nombre_cliente\": \"Robert'); DROP TABLE pedidos; --\", \"telefono_cliente\": \"x\", \"direccion_entrega\": \"x\", \"detalle_pedido\": \"x\", \"fecha_programada\": \"2026-05-01T10:00:00Z\" }" }
+      },
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "pm.test('Sin SQL injection - el server responde 201/422', () => pm.expect(pm.response.code).to.be.oneOf([201, 400, 422]));"
+        ]}
+      }]
+    },
+    {
+      "name": "14. Sin token (debe ser 401)",
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "GET",
+        "url": "{{baseUrl}}/pedidos"
+      },
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "pm.test('401 sin token', () => pm.response.to.have.status(401));"
+        ]}
+      }]
+    }
+  ]
+}
