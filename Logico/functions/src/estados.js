@@ -67,7 +67,7 @@ async function cambiarEstadoPedido({ pedidoId, nuevoEstado, comentario, usuario 
                   LIMIT 1`,
                 [pedidoId]
             );
-            if (!rutaRows[0] || rutaRows[0].motorista_id !== usuario.id_usuario) {
+            if (!rutaRows[0] || Number(rutaRows[0].motorista_id) !== Number(usuario.id_usuario)) {
                 throw new BusinessRuleError(
                     'Solo el motorista asignado puede actualizar este pedido.'
                 );

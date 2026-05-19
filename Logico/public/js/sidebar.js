@@ -17,8 +17,10 @@ export function renderSidebar(activePath, me) {
         links.push({ href: 'motorista.html', label: 'Mis rutas' });
     }
     if (me.rol === 'admin') {
-        links.push({ href: 'admin-usuarios.html', label: 'Usuarios' });
+        links.push({ href: 'admin-motoristas.html', label: 'Motoristas' });
+        links.push({ href: 'admin-motos.html', label: 'Motos' });
         links.push({ href: 'admin-farmacias.html', label: 'Farmacias' });
+        links.push({ href: 'admin-usuarios.html', label: 'Usuarios' });
         links.push({ href: 'admin-auditoria.html', label: 'Auditoría' });
     }
 

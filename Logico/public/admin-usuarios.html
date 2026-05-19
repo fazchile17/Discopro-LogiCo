@@ -192,7 +192,7 @@ async function cargar(opts = {}) {
             <p class="muted" style="margin:0 0 12px">Mostrando <strong>${usuarios.length}</strong> usuario(s).</p>
             <table>
                 <thead><tr>
-                    <th>Nombre</th><th>Correo</th><th>Rol</th>
+                    <th>ID</th><th>Nombre</th><th>Correo</th><th>Rol</th>
                     <th>Estado</th><th>Creado</th><th>Acciones</th>
                 </tr></thead>
                 <tbody>
@@ -210,6 +210,7 @@ async function cargar(opts = {}) {
 
                     return `
                     <tr>
+                        <td class="muted">#${u.id_usuario}</td>
                         <td>
                             ${esPrincipal ? '<span title="Admin principal" style="color:#d97706">★</span> ' : ''}
                             <strong>${escapeHtml(u.nombre)} ${escapeHtml(u.apellido)}</strong>
@@ -300,12 +301,15 @@ document.getElementById('form-crear').addEventListener('submit', async (e) => {
     const data = Object.fromEntries(new FormData(form));
     try {
         const creado = await apiFetch('/usuarios', { method: 'POST', body: JSON.stringify(data) });
+        if (!creado || !creado.rol) {
+            throw new Error('El servidor no devolvió el usuario creado correctamente.');
+        }
         const had = habiaFiltrosActivos();
         limpiarFiltrosListado();
         toast(
             had
-                ? `Usuario creado (#${creado.id_usuario}): ${creado.correo}. Puedes iniciar sesión con ese correo. Filtros reiniciados.`
-                : `Usuario creado (#${creado.id_usuario}): ${creado.correo}. Puedes iniciar sesión con ese correo.`,
+                ? `Usuario creado como ${creado.rol} (#${creado.id_usuario}): ${creado.correo}. Filtros reiniciados.`
+                : `Usuario creado como ${creado.rol} (#${creado.id_usuario}): ${creado.correo}.`,
             'success'
         );
         document.getElementById('modal-crear').classList.remove('show');
@@ -324,16 +328,25 @@ document.getElementById('form-rol').addEventListener('submit', async (e) => {
     const id = f.id_usuario.value;
     const rol = f.rol.value;
     try {
-        await apiFetch(`/usuarios/${id}/rol`, {
+        const actualizado = await apiFetch(`/usuarios/${id}/rol`, {
             method: 'POST',
             body: JSON.stringify({ rol }),
         });
+        const enBd = await apiFetch(`/usuarios/${id}`);
+        const rolEsperado = actualizado.rol_verificado || actualizado.rol || rol;
+        if (enBd.rol !== rolEsperado) {
+            toast(
+                `Error: el listado sigue en "${enBd.rol}" pero se pidió "${rolEsperado}". Recarga con Ctrl+F5 o avisa al soporte.`,
+                'error'
+            );
+            return;
+        }
         const had = habiaFiltrosActivos();
         limpiarFiltrosListado();
         toast(
             had
-                ? 'Rol actualizado. Filtros reiniciados.'
-                : 'Rol actualizado.',
+                ? `Rol actualizado a ${actualizado.rol || rol} (#${actualizado.id_usuario || id}). El usuario debe cerrar sesión y volver a entrar.`
+                : `Rol actualizado a ${actualizado.rol || rol} (#${actualizado.id_usuario || id}). El usuario debe cerrar sesión y volver a entrar.`,
             'success'
         );
         document.getElementById('modal-rol').classList.remove('show');

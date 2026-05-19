@@ -117,6 +117,8 @@ export function requireSession() {
                 return;
             }
             try {
+                // Refrescar token tras cambios de rol hechos por un admin.
+                await user.getIdToken(true);
                 const me = await apiFetch('/me');
                 resolve(me);
             } catch (e) {

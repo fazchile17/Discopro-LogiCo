@@ -1,0 +1,29 @@
+gantt
+    title LogiCo — Carta Gantt (28 días hábiles)
+    dateFormat  YYYY-MM-DD
+    axisFormat  %d/%m
+
+    section Sprint 0 — Infra
+    Firebase + Cloud SQL           :s0a, 2026-03-02, 2d
+    Auth / Storage / Functions     :s0b, after s0a, 1d
+
+    section Sprint 1 — Datos
+    MER + schema SQL               :s1a, 2026-03-05, 2d
+    Triggers + seeds               :s1b, after s1a, 2d
+    Pool PG + auth middleware      :s1c, 2026-03-05, 2d
+
+    section Sprint 2 — Backend
+    Pedidos + rutas + estados      :s2a, 2026-03-10, 4d
+    Tests unitarios core           :s2b, after s2a, 1d
+
+    section Sprint 3 — Frontend
+    Login + dashboard              :s3a, 2026-03-17, 2d
+    Pedidos + motorista UI         :s3b, after s3a, 3d
+
+    section Sprint 4 — Extras
+    Incidencias + evidencias       :s4a, 2026-03-24, 3d
+    Farmacias + geografía          :s4b, after s4a, 2d
+
+    section Sprint 5 — Cierre
+    QA + seguridad + docs          :s5a, 2026-03-31, 3d
+    Deploy producción              :s5b, after s5a, 2d

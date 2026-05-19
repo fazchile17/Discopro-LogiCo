@@ -9,6 +9,7 @@
 const admin = require('firebase-admin');
 const bcrypt = require('bcryptjs');
 const { pool } = require('./db');
+const { ensureUsuariosTableResolved, getTblUsuarios } = require('./usuarios-table');
 
 /** Por defecto se permite auto-registro en BD para tokens Firebase válidos; en prod estricto poner AUTH_AUTO_PROVISION=false. */
 function autoProvisionEnabled() {
@@ -69,17 +70,52 @@ async function authRequired(req, res, next) {
     }
 
     try {
+        await ensureUsuariosTableResolved();
+        const tbl = getTblUsuarios();
         const emailNorm = (decoded.email || '').trim().toLowerCase();
-        const { rows } = await pool.query(
-            `SELECT id_usuario, firebase_uid, correo, rol, nombre, apellido,
-                    activo, es_admin_principal
-               FROM usuarios
-              WHERE firebase_uid = $1 OR correo = $2::citext
-              LIMIT 1`,
-            [decoded.uid, emailNorm]
-        );
 
-        let user = rows[0];
+        // Resolver en dos pasos: el UID de Firebase es la fuente de verdad.
+        // Un solo `WHERE uid OR correo LIMIT 1` puede devolver otra fila si hay
+        // datos inconsistentes (p. ej. UID enlazado a un correo distinto).
+        const cols = `id_usuario, firebase_uid, correo, rol, nombre, apellido,
+                      activo, es_admin_principal`;
+
+        const { rows: byUid } = await pool.query(
+            `SELECT ${cols} FROM ${tbl} WHERE firebase_uid = $1`,
+            [decoded.uid]
+        );
+        let user = byUid[0] || null;
+
+        if (!user && emailNorm) {
+            const { rows: byEmail } = await pool.query(
+                `SELECT ${cols} FROM ${tbl} WHERE correo = $1::citext`,
+                [emailNorm]
+            );
+            user = byEmail[0] || null;
+        } else if (user && emailNorm && String(user.correo).toLowerCase() !== emailNorm) {
+            const { rows: byEmail } = await pool.query(
+                `SELECT ${cols} FROM ${tbl} WHERE correo = $1::citext`,
+                [emailNorm]
+            );
+            const emailRow = byEmail[0];
+            if (emailRow && Number(emailRow.id_usuario) !== Number(user.id_usuario)) {
+                console.error(
+                    '[auth] conflicto uid/correo',
+                    { uid: decoded.uid, uidRow: user.id_usuario, emailRow: emailRow.id_usuario }
+                );
+                return res.status(409).json({
+                    error: 'Cuenta inconsistente en LogiCo (Firebase UID y correo apuntan a usuarios distintos). Contacte al administrador.',
+                    details: {
+                        por_uid: { id_usuario: user.id_usuario, correo: user.correo, rol: user.rol },
+                        por_correo: {
+                            id_usuario: emailRow.id_usuario,
+                            correo: emailRow.correo,
+                            rol: emailRow.rol,
+                        },
+                    },
+                });
+            }
+        }
         if (!user) {
             if (!autoProvisionEnabled() || !emailNorm) {
                 return res.status(403).json({
@@ -92,11 +128,14 @@ async function authRequired(req, res, next) {
             const rolProv = defaultProvisionRol();
             try {
                 const ins = await pool.query(
-                    `INSERT INTO usuarios
+                    `INSERT INTO ${tbl}
                         (firebase_uid, nombre, apellido, correo, contrasena, rol, activo)
                      VALUES ($1, $2, $3, $4::citext, $5, $6, TRUE)
                      ON CONFLICT (correo) DO UPDATE SET
-                        firebase_uid = COALESCE(usuarios.firebase_uid, EXCLUDED.firebase_uid)
+                        firebase_uid = COALESCE(${tbl}.firebase_uid, EXCLUDED.firebase_uid),
+                        nombre = COALESCE(NULLIF(${tbl}.nombre, ''), EXCLUDED.nombre),
+                        apellido = COALESCE(NULLIF(${tbl}.apellido, ''), EXCLUDED.apellido),
+                        rol = ${tbl}.rol
                      RETURNING id_usuario, firebase_uid, correo, rol, nombre, apellido,
                                activo, es_admin_principal`,
                     [
@@ -129,7 +168,7 @@ async function authRequired(req, res, next) {
 
         if (!user.firebase_uid) {
             await pool.query(
-                `UPDATE usuarios SET firebase_uid = $1 WHERE id_usuario = $2`,
+                `UPDATE ${tbl} SET firebase_uid = $1 WHERE id_usuario = $2`,
                 [decoded.uid, user.id_usuario]
             );
             user.firebase_uid = decoded.uid;
@@ -142,7 +181,13 @@ async function authRequired(req, res, next) {
             });
         }
 
-        req.user = user;
+        req.user = {
+            ...user,
+            id_usuario: Number(user.id_usuario),
+            rol: String(user.rol),
+            activo: user.activo === true || user.activo === 't',
+            es_admin_principal: user.es_admin_principal === true,
+        };
         return next();
     } catch (err) {
         console.error('[auth] BD error:', err.message);

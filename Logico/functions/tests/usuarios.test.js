@@ -4,12 +4,19 @@
  */
 const { createFakeDb } = require('./helpers/fakeDb');
 
+jest.mock('../src/usuarios-table', () => ({
+    ensureUsuariosTableResolved: jest.fn(async () => {}),
+    getTblUsuarios: () => 'public.usuarios',
+    diagnosticarUsuarios: jest.fn(async () => ({})),
+}));
+
 jest.mock('../src/db', () => {
     const fake = require('./helpers/fakeDb').createFakeDb();
     return {
         __fake: fake,
         query: (...a) => fake.query(...a),
         withTransaction: (work) => fake.withTransaction(work),
+        withClient: (work) => fake.withClient(work),
         pool: fake.pool,
     };
 });
@@ -21,6 +28,7 @@ jest.mock('../src/auth', () => ({
             createUser: jest.fn(async ({ email }) => ({ uid: `mock-uid-${email}` })),
             deleteUser: jest.fn(async () => undefined),
             updateUser: jest.fn(async () => undefined),
+            setCustomUserClaims: jest.fn(async () => undefined),
         }),
     },
 }));
@@ -55,16 +63,24 @@ describe('crearUsuario', () => {
         ).rejects.toThrow(/administrador/i);
     });
 
-    test('admin secundario NO puede crear otro admin', async () => {
-        await expect(
-            usuarios.crearUsuario({
-                payload: {
-                    nombre: 'X', apellido: 'Y',
-                    correo: 'nuevo@logico.app', contrasena: 'Aa12345!', rol: 'admin',
-                },
-                actor: adminSecundario,
-            })
-        ).rejects.toThrow(/admin principal/i);
+    test('cualquier admin puede crear otro admin', async () => {
+        db.__fake
+            .next([{
+                id_usuario: 99, firebase_uid: 'mock-uid-nuevo@logico.app',
+                nombre: 'X', apellido: 'Y', correo: 'nuevo@logico.app',
+                rol: 'admin', activo: true, es_admin_principal: false,
+                fecha_creacion: new Date().toISOString(),
+            }])
+            .next([{ id_auditoria: 1 }]);
+
+        const u = await usuarios.crearUsuario({
+            payload: {
+                nombre: 'X', apellido: 'Y',
+                correo: 'nuevo@logico.app', contrasena: 'Aa12345!', rol: 'admin',
+            },
+            actor: adminSecundario,
+        });
+        expect(u.rol).toBe('admin');
     });
 
     test('admin principal puede crear admin secundario', async () => {
@@ -158,9 +174,14 @@ describe('eliminarUsuario - jerarquía', () => {
 });
 
 describe('cambiarRolUsuario - jerarquía', () => {
+    afterEach(() => {
+        db.__fake.clearPendingResponses();
+    });
+
     test('NO se puede cambiar rol del admin principal (otro admin lo intenta)', async () => {
-        db.__fake.next([{ ...adminPrincipal }]);
-        db.__fake.next([{ id_auditoria: 1 }]);
+        db.__fake
+            .next([{ ...adminPrincipal }])
+            .next([{ id_auditoria: 1 }]);
 
         await expect(
             usuarios.cambiarRolUsuario({
@@ -171,23 +192,26 @@ describe('cambiarRolUsuario - jerarquía', () => {
         ).rejects.toThrow(/administrador principal/i);
     });
 
-    test('admin secundario NO puede promover a admin', async () => {
-        const op = { id_usuario: 7, rol: 'operadora', es_admin_principal: false };
-        db.__fake.next([op]);
-        db.__fake.next([{ id_auditoria: 2 }]);
+    test('admin secundario puede promover operadora a admin', async () => {
+        const op = { id_usuario: 7, rol: 'operadora', es_admin_principal: false, correo: 'o@x' };
+        db.__fake
+            .next([op])
+            .next([{ id_usuario: 7, rol: 'admin', correo: 'o@x', firebase_uid: null }])
+            .next([{ rol: 'admin' }])
+            .next([{ id_auditoria: 2 }]);
 
-        await expect(
-            usuarios.cambiarRolUsuario({
-                idUsuario: 7, nuevoRol: 'admin', actor: adminSecundario,
-            })
-        ).rejects.toThrow(/admin principal/i);
+        const r = await usuarios.cambiarRolUsuario({
+            idUsuario: 7, nuevoRol: 'admin', actor: adminSecundario,
+        });
+        expect(r.rol).toBe('admin');
     });
 
     test('admin principal SÍ puede promover a admin', async () => {
         const op = { id_usuario: 7, rol: 'operadora', es_admin_principal: false, correo: 'o@x' };
         db.__fake
             .next([op])
-            .next([])                       // UPDATE rol
+            .next([{ id_usuario: 7, rol: 'admin', correo: 'o@x', firebase_uid: null }])
+            .next([{ rol: 'admin' }])
             .next([{ id_auditoria: 3 }]);
 
         const r = await usuarios.cambiarRolUsuario({

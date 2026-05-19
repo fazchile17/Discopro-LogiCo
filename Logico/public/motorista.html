@@ -10,7 +10,8 @@
 <div class="shell">
     <aside class="sidebar" id="sidebar"></aside>
     <main>
-        <div class="flex-between">
+        <div class="card" id="moto-asignada" style="margin-top:16px;display:none"></div>
+        <div class="flex-between" style="margin-top:16px">
             <h2 style="margin:0">Mis rutas</h2>
             <label class="flex" style="gap:8px; font-size:14px">
                 <span>Disponible</span>
@@ -90,7 +91,12 @@ async function cargar() {
             cont.innerHTML = `
                 <div class="empty">
                     <p><strong>Sin ruta activa</strong></p>
-                    <p class="muted">Cuando una operadora te asigne un pedido, aparecerá aquí.</p>
+                    <p class="muted">Las rutas no se crean en &quot;Motos&quot;. Una <strong>operadora o admin</strong> debe:</p>
+                    <ol class="muted" style="text-align:left; max-width:420px; margin:12px auto">
+                        <li>Ir a <strong>Pedidos</strong> → abrir un pedido listo para despacho.</li>
+                        <li>Pulsar <strong>Asignar motorista</strong> y elegirte en la lista (debes estar disponible).</li>
+                    </ol>
+                    <p class="muted">Activa &quot;Disponible&quot; arriba a la derecha para aparecer en esa lista.</p>
                 </div>`;
         } else {
             cont.innerHTML = `
@@ -201,6 +207,23 @@ document.getElementById('toggle-disp').addEventListener('change', async (e) => {
     }
 });
 
+async function cargarMotoAsignada() {
+    const card = document.getElementById('moto-asignada');
+    try {
+        const moto = await apiFetch(`/motoristas/${me.id_usuario}/moto`);
+        if (!moto?.id_moto) {
+            card.style.display = 'none';
+            return;
+        }
+        card.style.display = 'block';
+        card.innerHTML = `
+            <p class="muted" style="margin:0 0 8px">Moto asignada</p>
+            <p style="margin:0"><strong>${moto.patente}</strong> — ${moto.marca} ${moto.modelo}${moto.anio ? ' (' + moto.anio + ')' : ''}</p>`;
+    } catch (_) {
+        card.style.display = 'none';
+    }
+}
+
 (async () => {
     me = await requireSession();
     if (me.rol !== 'motorista' && me.rol !== 'admin') {
@@ -209,6 +232,7 @@ document.getElementById('toggle-disp').addEventListener('change', async (e) => {
     }
     renderSidebar('motorista.html', me);
     document.getElementById('toggle-disp').checked = true;
+    await cargarMotoAsignada();
     cargar();
 })();
 </script>

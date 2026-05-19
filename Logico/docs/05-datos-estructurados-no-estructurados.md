@@ -3,10 +3,39 @@
 LogiCo combina **tres niveles** de estructura para cumplir el requisito de manejar
 datos relacionales y no relacionales en el mismo sistema.
 
+### Panorama de capas de datos
+
+```mermaid
+flowchart TB
+    subgraph Cliente
+        FE[Hosting HTML/JS]
+    end
+    subgraph Estructurado["5.1 Estructurado — PostgreSQL"]
+        PG[(Cloud SQL logico)]
+        T1[pedidos rutas usuarios]
+        T2[audit_logs JSONB]
+    end
+    subgraph Semi["5.2 Semi-estructurado"]
+        JB[payload JSONB<br/>consultas GIN]
+    end
+    subgraph NoEst["5.3 No estructurado"]
+        ST[Firebase Storage<br/>JPEG evidencias]
+    end
+    FE -->|apiFetch REST| API[Cloud Functions]
+    API --> PG
+    API --> T1
+    API --> T2
+    T2 --> JB
+    FE -->|uploadBytes| ST
+    API -->|solo metadatos| PG
+    ST -.->|downloadUrl en evidencias| FE
+```
+
 ## 5.1 Estructurados — PostgreSQL relacional
 
-Toda la información de negocio crítica vive en **8 tablas relacionales** con FK,
-constraints y triggers (ver `docs/04-base-datos.md`).
+La información de negocio crítica vive en **PostgreSQL relacional** (16 tablas de negocio
++ geografía; ver inventario completo en [`04-base-datos.md`](04-base-datos.md) §4.1),
+con FK, constraints y triggers.
 
 | Beneficio | Cómo se manifiesta |
 |---|---|
@@ -84,6 +113,8 @@ gs://logico-20f73.firebasestorage.app/
 
 ### Reglas de Storage (`storage.rules`)
 
+Fragmento alineado con el repositorio (raíz del proyecto):
+
 ```
 match /evidencias/{pedidoId}/{kind}/{fileName} {
   allow read: if request.auth != null;
@@ -92,7 +123,12 @@ match /evidencias/{pedidoId}/{kind}/{fileName} {
                 && request.resource.contentType.matches('image/.*')
                 && kind in ['entrega', 'incidencia', 'firma', 'otro'];
 }
+match /{allPaths=**} { allow read, write: if false; }
 ```
+
+> **Limitación documentada (MVP):** la lectura en Storage solo exige usuario autenticado,
+> no valida que el `pedidoId` pertenezca a una ruta del solicitante. Ver mitigación
+> propuesta en [`06-seguridad.md`](06-seguridad.md) §6.10.
 
 ### Vínculo con la BD relacional
 
@@ -141,3 +177,11 @@ sequenceDiagram
 ```
 
 Ningún byte del archivo pasa por las Functions, lo que reduce coste, latencia y CPU.
+
+## 5.6 Coherencia documental
+
+| Afirmación | Fuente de verdad |
+|---|---|
+| Número de tablas | `04-base-datos.md` §4.1 (inventario por script) |
+| Reglas Storage | Archivo `storage.rules` en la raíz del repo |
+| Endpoints de evidencias | `11-backend-funciones.md` + `functions/index.js` |

@@ -26,6 +26,10 @@ function createFakeDb() {
         rollbackCount = 0;
     }
 
+    function clearPendingResponses() {
+        responses.length = 0;
+    }
+
     const fakeClient = {
         async query(sql, params) {
             queries.push({ sql: sql.replace(/\s+/g, ' ').trim(), params });
@@ -34,7 +38,14 @@ function createFakeDb() {
             if (/^ROLLBACK/i.test(sql.trim())) { rollbackCount++; return { rows: [] }; }
             const r = responses.shift();
             if (r instanceof Error) throw r;
-            return { rows: r ?? [] };
+            const rows = r ?? [];
+            const sqlNorm = sql.replace(/\s+/g, ' ').trim();
+            let rowCount = rows.length;
+            if (/^UPDATE/i.test(sqlNorm)) {
+                // `next([])` en tests = UPDATE exitoso con 1 fila afectada
+                rowCount = r === undefined ? 0 : 1;
+            }
+            return { rows, rowCount };
         },
         release() { /* noop */ },
     };
@@ -42,6 +53,8 @@ function createFakeDb() {
     const api = {
         next,
         reset,
+        clearPendingResponses,
+        get pendingCount() { return responses.length; },
         async query(sql, params) {
             return fakeClient.query(sql, params);
         },
@@ -55,6 +68,9 @@ function createFakeDb() {
                 rollbackCount++;
                 throw e;
             }
+        },
+        async withClient(work) {
+            return work(fakeClient);
         },
         pool: { query: (sql, params) => fakeClient.query(sql, params) },
         get queries() { return queries; },

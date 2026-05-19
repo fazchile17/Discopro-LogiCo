@@ -92,6 +92,10 @@ async function cargar() {
 
 (async () => {
     me = await requireSession();
+    if (me.rol === 'motorista') {
+        window.location.href = '/motorista.html';
+        return;
+    }
     renderSidebar('pedidos.html', me);
     document.getElementById('btn-filtrar').addEventListener('click', cargar);
     cargar();

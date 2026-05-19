@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LogiCo - Gestión de motoristas</title>
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div class="shell">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main>
+        <div class="flex-between" style="display:flex;justify-content:space-between;align-items:center">
+            <h2 style="margin:0">Gestión de motoristas</h2>
+            <a href="/admin-usuarios.html" class="btn-secondary" style="text-decoration:none;padding:8px 14px">+ Crear motorista</a>
+        </div>
+        <div class="card" style="margin-top:16px">
+            <p class="muted" style="margin:0">Mantenedor de repartidores: disponibilidad, estado y moto asignada.</p>
+        </div>
+        <div class="card"><div id="tabla">Cargando…</div></div>
+    </main>
+</div>
+<div id="toast"></div>
+<script src="/js/config.js"></script>
+<script type="module">
+import { requireSession, apiFetch, toast, escapeHtml } from '/js/firebase-init.js';
+import { renderSidebar } from '/js/sidebar.js';
+
+let me;
+
+async function cargar() {
+    const [usuarios, motos] = await Promise.all([
+        apiFetch('/usuarios?rol=motorista'),
+        apiFetch('/motos?soloActivas=false').catch(() => []),
+    ]);
+    const motoPorMotorista = {};
+    motos.forEach((m) => {
+        if (m.motorista_id != null) motoPorMotorista[Number(m.motorista_id)] = m;
+    });
+
+    if (!usuarios.length) {
+        document.getElementById('tabla').innerHTML = '<div class="empty">No hay motoristas registrados.</div>';
+        return;
+    }
+
+    document.getElementById('tabla').innerHTML = `
+        <table>
+            <thead>
+                <tr>
+                    <th>Nombre</th><th>Correo</th><th>Activo</th><th>Disponible</th><th>Moto</th><th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${usuarios.map((u) => {
+                    const moto = motoPorMotorista[Number(u.id_usuario)];
+                    return `<tr>
+                        <td>${escapeHtml(u.nombre)} ${escapeHtml(u.apellido)}</td>
+                        <td>${escapeHtml(u.correo)}</td>
+                        <td>${u.activo ? '<span class="badge ok">Sí</span>' : '<span class="badge err">No</span>'}</td>
+                        <td id="disp-${u.id_usuario}">—</td>
+                        <td>${moto ? escapeHtml(moto.patente + ' ' + moto.marca) : '<span class="muted">Sin asignar</span>'}</td>
+                        <td>
+                            <button class="btn-secondary btn-toggle-disp" data-id="${u.id_usuario}">Toggle disp.</button>
+                        </td>
+                    </tr>`;
+                }).join('')}
+            </tbody>
+        </table>`;
+
+    const disp = await apiFetch('/motoristas/disponibles').catch(() => []);
+    const idsDisp = new Set(disp.map((d) => d.id_usuario));
+    usuarios.forEach((u) => {
+        const el = document.getElementById(`disp-${u.id_usuario}`);
+        if (el) {
+            el.innerHTML = idsDisp.has(u.id_usuario)
+                ? '<span class="badge ok">Disponible</span>'
+                : '<span class="badge warn">Ocupado / no disp.</span>';
+        }
+    });
+
+    document.querySelectorAll('.btn-toggle-disp').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const id = Number(btn.dataset.id);
+            const actual = idsDisp.has(id);
+            try {
+                await apiFetch(`/motoristas/${id}/disponibilidad`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ disponible: !actual }),
+                });
+                toast('Disponibilidad actualizada');
+                await cargar();
+            } catch (e) {
+                toast(e.message, 'error');
+            }
+        });
+    });
+}
+
+(async () => {
+    me = await requireSession();
+    if (me.rol !== 'admin') {
+        window.location.href = '/dashboard.html';
+        return;
+    }
+    renderSidebar('admin-motoristas.html', me);
+    try {
+        await cargar();
+    } catch (e) {
+        toast(e.message, 'error');
+    }
+})();
+</script>
+</body>
+</html>
+

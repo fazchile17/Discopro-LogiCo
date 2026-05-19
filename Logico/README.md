@@ -11,30 +11,33 @@ Sistema completo de gestión de pedidos, rutas, motoristas e incidencias constru
 > No se utiliza Firestore como base principal. Toda la lógica de negocio se ejecuta
 > en Firebase Functions con transacciones SQL reales (`BEGIN/COMMIT`).
 
-Citio Web:[https://logico-20f73.web.app/index.html](https://logico-20f73.web.app/index.html)
+**Sitio web:** [https://logico-20f73.web.app/index.html](https://logico-20f73.web.app/index.html)
 
-Proyecto Firebase: `**logico-20f73`**
+Proyecto Firebase: `logico-20f73`
+
+> Limitaciones de seguridad del MVP y matriz de acceso por rol: [`docs/06-seguridad.md`](docs/06-seguridad.md) §6.10–§6.11.
 
 
 
 ---
 
-## 📚 Documentación académica (carpeta `docs/`)
+## 📚 Documentación académica (`docs/`)
 
+Toda la documentación del proyecto vive en la carpeta **`docs/`** (carpeta oficial).
 
-| #   | Documento                                                                           | Cubre                                                  |
-| --- | ----------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| 1   | [Metodología Scrum](docs/01-metodologia-scrum.md)                                   | Cronograma, sprints, dependencias, riesgos             |
-| 2   | [Arquitectura 4+1](docs/02-arquitectura-4+1.md)                                     | Vista lógica, desarrollo, procesos, física, escenarios |
-| 3   | [Tecnologías](docs/03-tecnologias.md)                                               | Justificación (escalabilidad/seguridad/rendimiento)    |
-| 4   | [Base de datos](docs/04-base-datos.md)                                              | MER, FK, constraints, triggers, diccionario            |
-| 5   | [Estructurados / no estructurados](docs/05-datos-estructurados-no-estructurados.md) | SQL + JSONB + Storage                                  |
-| 6   | [Seguridad](docs/06-seguridad.md)                                                   | RBAC, STRIDE, controles, OWASP                         |
-| 7   | [Codificación segura](docs/07-codificacion-segura.md)                               | Validación, prepared statements, errores               |
-| 8   | [Plan de pruebas](docs/08-plan-pruebas.md)                                          | Unitarias, integración, rendimiento                    |
-| 9   | [Prototipo](docs/09-prototipo.md)                                                   | UI, responsive, design system                          |
-| 10  | [Retroalimentación](docs/10-retroalimentacion.md)                                   | Feedback de usuarios + mejoras aplicadas               |
-| 11  | [Backend funciones](docs/11-backend-funciones.md)                                   | Documentación detallada de cada función                |
+| Documento | Cubre |
+| --- | --- |
+| [01-metodologia-scrum.md](docs/01-metodologia-scrum.md) | Gantt, Jira, esfuerzo, sprints |
+| [02-arquitectura-4+1.md](docs/02-arquitectura-4+1.md) | 4+1, UML, secuencias, estados, mantenedores |
+| [03-tecnologias.md](docs/03-tecnologias.md) | Comparativa HW/SW/Cloud/BD |
+| [04-base-datos.md](docs/04-base-datos.md) | MER, FK, triggers, scripts SQL |
+| [05-datos-estructurados-no-estructurados.md](docs/05-datos-estructurados-no-estructurados.md) | SQL + JSONB + Storage |
+| [06-seguridad.md](docs/06-seguridad.md) | RBAC, OWASP, limitaciones MVP §6.10 |
+| [07-codificacion-segura.md](docs/07-codificacion-segura.md) | Estándares + SonarQube |
+| [08-plan-pruebas.md](docs/08-plan-pruebas.md) | Unitarias, E2E, rendimiento |
+| [09-prototipo.md](docs/09-prototipo.md) | UI, flujos pedidos/motorista |
+| [10-retroalimentacion.md](docs/10-retroalimentacion.md) | Usabilidad ≥5 usuarios |
+| [11-backend-funciones.md](docs/11-backend-funciones.md) | API y servicios |
 
 
 ---
@@ -45,7 +48,9 @@ Proyecto Firebase: `**logico-20f73`**
 Logico/
 ├── firebase.json / .firebaserc / storage.rules
 ├── database/
+│   ├── create_tables.sql … seed.sql Scripts SQL rúbrica (ver docs/04-base-datos.md §4.11)
 │   ├── 01_schema.sql               Tablas, FK, índices, vistas
+│   ├── 07_motos.sql                Mantenedor flota motos
 │   ├── 02_triggers.sql             Triggers de reglas de negocio
 │   ├── 03_seeds.sql                Estados + usuarios demo
 │   └── 04_audit_storage.sql        audit_logs (JSONB) + evidencias
@@ -63,8 +68,9 @@ Logico/
 │   │   ├── estados.js              cambiarEstadoPedido(), registrarEntrega()
 │   │   ├── incidencias.js          registrarIncidencia()
 │   │   ├── reprogramaciones.js     reprogramarPedido()
+│   │   ├── motos.js                CRUD flota motos
 │   │   └── evidencias.js           Metadatos Storage
-│   └── tests/                      Jest (4 suites, 17 casos)
+│   └── tests/                      Jest (6 suites, 38 casos)
 ├── public/                         Frontend (HTML + ES Modules)
 │   ├── index.html (login)
 │   ├── dashboard.html
@@ -72,11 +78,14 @@ Logico/
 │   ├── pedido.html (detalle)
 │   ├── crear-pedido.html
 │   ├── motorista.html
+│   ├── admin-farmacias.html
+│   ├── admin-motoristas.html
+│   ├── admin-motos.html
 │   ├── css/styles.css
 │   └── js/{config,firebase-init,sidebar}.js
 ├── postman/
 │   └── LogiCo.postman_collection.json    14 escenarios E2E
-└── docs/                           Documentación de la rúbrica (11 archivos)
+└── docs/                           Documentación académica y rúbrica (22+ archivos .md)
 ```
 
 ---
@@ -112,13 +121,20 @@ gcloud sql instances create logico-pg \
 gcloud sql databases create logico --instance=logico-pg
 gcloud sql users create logico_app --instance=logico-pg --password=...
 
-# 3) Aplicar esquema
+# 3) Aplicar esquema (siempre dbname=logico, no postgres)
 psql "host=... user=logico_app dbname=logico" \
     -f database/01_schema.sql \
     -f database/02_triggers.sql \
     -f database/03_seeds.sql \
-    -f database/04_audit_storage.sql
+    -f database/04_audit_storage.sql \
+    -f database/05_admin_farmacias.sql \
+    -f database/07_motos.sql \
+    -f database/08_cambiar_rol_usuario.sql
 ```
+
+En Cloud Shell, si ya está en psql: `\c logico` y luego `\i database/07_motos.sql`.
+
+**Motos vs rutas:** en **Admin → Motos** se registra el vehículo y se asigna a un motorista. Las **rutas de entrega** se crean en **Pedidos → detalle → Asignar motorista** (operadora/admin).
 
 ### 2. Firebase
 
@@ -222,20 +238,5 @@ Todas las llamadas (excepto `/health`) requieren `Authorization: Bearer <Firebas
 ---
 
 ## 📊 Cumplimiento de la rúbrica
-
-
-| Criterio                         | Documento                                             | Implementación                                                 |
-| -------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------- |
-| Metodología Scrum                | `docs/01-metodologia-scrum.md`                        | Cronograma 28 días, 6 sprints, 30+ tareas con dependencias     |
-| Arquitectura 4+1                 | `docs/02-arquitectura-4+1.md`                         | 5 vistas + 5 casos de uso con diagramas mermaid                |
-| Tecnologías justificadas         | `docs/03-tecnologias.md`                              | Cada stack evaluado contra escalabilidad/seguridad/rendimiento |
-| Base de datos                    | `docs/04-base-datos.md` + `database/*.sql`            | 10 tablas, FK, CHECK, UNIQUE, triggers                         |
-| Estructurados / no estructurados | `docs/05-...md`                                       | PostgreSQL + JSONB + Firebase Storage                          |
-| Seguridad                        | `docs/06-seguridad.md`                                | RBAC + STRIDE + OWASP API Top 10                               |
-| Codificación segura              | `docs/07-codificacion-segura.md`                      | Prepared statements, errores, redacted logs                    |
-| Pruebas                          | `docs/08-plan-pruebas.md` + `tests/` + `postman/`     | 17 unitarias + 14 E2E + perf                                   |
-| Prototipo                        | `docs/09-prototipo.md` + `public/`                    | 6 pantallas funcionales responsive                             |
-| Retroalimentación                | `docs/10-retroalimentacion.md`                        | 8 hallazgos + mejoras aplicadas + SUS                          |
-| Backend funciones                | `docs/11-backend-funciones.md` + `functions/src/*.js` | 7 funciones con tx + auditoría                                 |
 
 

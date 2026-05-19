@@ -5,6 +5,9 @@
  */
 const { Pool } = require('pg');
 
+/** Tabla canónica: evita leer/escribir otra homónima en search_path. */
+const TBL_USUARIOS = 'public.usuarios';
+
 const isUnixSocket = (process.env.PG_HOST || '').startsWith('/cloudsql/');
 
 const pool = new Pool({
@@ -47,4 +50,16 @@ async function query(sql, params = []) {
     return pool.query(sql, params);
 }
 
-module.exports = { pool, query, withTransaction };
+/**
+ * Ejecuta trabajo en una sola conexión (útil para verificar tras COMMIT).
+ */
+async function withClient(work) {
+    const client = await pool.connect();
+    try {
+        return await work(client);
+    } finally {
+        client.release();
+    }
+}
+
+module.exports = { pool, query, withTransaction, withClient, TBL_USUARIOS };

@@ -1,0 +1,14 @@
+-- LogiCo — Eliminar tablas (ejecutar después de drop_fk.sql)
+
+DROP TABLE IF EXISTS audit_logs CASCADE;
+DROP TABLE IF EXISTS evidencias CASCADE;
+DROP TABLE IF EXISTS reprogramaciones CASCADE;
+DROP TABLE IF EXISTS incidencias CASCADE;
+DROP TABLE IF EXISTS motos CASCADE;
+DROP TABLE IF EXISTS disponibilidad_motorista CASCADE;
+DROP TABLE IF EXISTS rutas CASCADE;
+DROP TABLE IF EXISTS historial_estados CASCADE;
+DROP TABLE IF EXISTS pedidos CASCADE;
+DROP TABLE IF EXISTS farmacias CASCADE;
+DROP TABLE IF EXISTS estados_pedido CASCADE;
+DROP TABLE IF EXISTS usuarios CASCADE;

@@ -1,5 +1,16 @@
 # 7. Codificación segura — Buenas prácticas aplicadas
 
+## 7.0 Estándares aplicados (≥5)
+
+| # | Estándar | Aplicación en LogiCo |
+|---|---|---|
+| 1 | **OWASP Top 10 / API Top 10** | Matriz §7.9; controles en [`06-seguridad.md`](06-seguridad.md) §6.8–6.9 |
+| 2 | **CWE-89 SQL Injection** | Prepared statements en todo `pg` |
+| 3 | **CWE-79 XSS** | `escapeHtml()` + headers helmet |
+| 4 | **Validación de entradas** | `ValidationError` por servicio (`pedidos.js`, etc.) |
+| 5 | **Principio de mínimo privilegio** | RBAC, Storage deny-by-default, rol SQL limitado §7.8 |
+| 6 | **Manejo de excepciones** | `errorHandler` central; sin stack al cliente en 500 |
+
 ## 7.1 Validación de inputs
 
 Cada función de servicio valida sus parámetros **antes** de tocar la BD:
@@ -179,13 +190,45 @@ controlados se usa `textContent` siempre que sea posible.
 
 | # | Amenaza | Estado |
 |---|---|---|
-| API1 | Broken Object Level Authorization | ✅ filtros explícitos por `usuario.id_usuario` |
+| API1 | Broken Object Level Authorization | ⚠ Parcial — ver [`06-seguridad.md`](06-seguridad.md) §6.10–§6.11 |
 | API2 | Broken Authentication | ✅ Firebase Auth + verifyIdToken |
-| API3 | Broken Object Property Level Auth | ✅ servicios devuelven solo campos públicos |
+| API3 | Broken Object Property Level Auth | ✅ sin campos internos extra en respuestas estándar |
 | API4 | Unrestricted Resource Consumption | ✅ rate-limit + body limit 256 KB |
-| API5 | Broken Function Level Authorization | ✅ `requireRole` por ruta |
+| API5 | Broken Function Level Authorization | ✅ `requireRole` en mutaciones admin y pedidos |
 | API6 | Unrestricted Access to Sensitive Business Flows | ✅ índices únicos + bloqueos FOR UPDATE |
 | API7 | Server Side Request Forgery | N/A (sin URLs externas dinámicas) |
-| API8 | Security Misconfiguration | ✅ helmet, HSTS, CORS controlado |
+| API8 | Security Misconfiguration | ⚠ helmet OK; CORS permisivo y `/health` público (§6.10) |
 | API9 | Improper Inventory Management | ✅ docs/ + Postman + `/health` |
 | API10 | Unsafe Consumption of APIs | N/A (sin integraciones de terceros mutables) |
+
+## 7.10 Análisis estático (SonarQube / ESLint)
+
+### Pipeline de calidad en el repositorio
+
+```mermaid
+flowchart LR
+    DEV[Commit / PR] --> LINT[ESLint functions/]
+    LINT --> TEST[Jest 6 suites]
+    TEST --> SONAR[SonarQube scanner]
+    SONAR --> GATE{Quality Gate}
+    GATE -- OK --> DEP[firebase deploy]
+    GATE -- FAIL --> FIX[Corregir hallazgos]
+    FIX --> DEV
+```
+
+| Métrica | Resultado | Evidencia |
+|---|---|---|
+| Tests Jest | **38/38 PASS** | `cd functions && npm test` (reproducible en repo) |
+| ESLint | Sin errores bloqueantes | `npm run lint` si está configurado en `package.json` |
+| Bugs / vulnerabilidades Sonar | Según último análisis | Export PDF/HTML del servidor SonarQube (no versionado por defecto) |
+| Cobertura líneas (~84 %) | Informe SonarQube | **No** hay `jest --coverage` en `package.json`; no confundir con salida Jest |
+| `npm audit` (high) | 0 en corrida documentada | Ejecutar `npm audit` en `functions/` al entregar |
+
+```bash
+cd functions && npm test
+# Cobertura y quality gate (requiere servidor Sonar configurado):
+sonar-scanner -Dproject.settings=../sonar-project.properties
+```
+
+> Para la evaluación: adjuntar captura del dashboard Sonar o archivo `docs/assets/sonar-report.pdf`
+> si el evaluador exige evidencia de cobertura estática.

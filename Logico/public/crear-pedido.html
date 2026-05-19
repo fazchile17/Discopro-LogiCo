@@ -87,6 +87,10 @@ import { renderSidebar } from '/js/sidebar.js';
 
 (async () => {
     const me = await requireSession();
+    if (me.rol === 'motorista') {
+        window.location.href = '/motorista.html';
+        return;
+    }
     if (!['operadora', 'admin'].includes(me.rol)) {
         toast('Acceso denegado', 'error');
         window.location.href = '/dashboard.html';

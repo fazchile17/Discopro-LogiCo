@@ -14,7 +14,34 @@ Cada elección está respaldada por tres criterios obligatorios:
 | Cliente PG | `pg` (node-postgres) | 8.13 |
 | Storage no estructurado | Firebase Storage | — |
 | Frontend | HTML5 + CSS3 + JavaScript ES Modules | nativo |
-| Pruebas | Jest + supertest + Postman | 29.7 / 7.0 |
+| Pruebas | Jest (38 unitarios) + Postman/Newman (E2E manual) | 29.7 / colección Postman |
+
+### 3.0 Vista de capas (alineada con 4+1)
+
+```mermaid
+flowchart TB
+    subgraph Presentacion["Capa presentación"]
+        H[Firebase Hosting<br/>HTML CSS ES Modules]
+    end
+    subgraph Identidad["Capa identidad"]
+        A[Firebase Authentication]
+    end
+    subgraph Aplicacion["Capa aplicación"]
+        F[Cloud Functions v2<br/>Express + dominio src/]
+    end
+    subgraph Datos["Capa datos"]
+        SQL[(Cloud SQL PostgreSQL)]
+        STG[Firebase Storage]
+    end
+    H --> A
+    H --> F
+    H --> STG
+    F --> A
+    F --> SQL
+    F --> STG
+```
+
+Detalle de despliegue físico: [`02-arquitectura-4+1.md`](02-arquitectura-4+1.md) §2.4.
 
 ---
 
@@ -90,13 +117,37 @@ Si el proyecto crece, migrar a React es directo: cada `*.html` ya es una "págin
 
 ## 3.6 Jest + Postman
 
-| Herramienta | Uso |
+| Herramienta | Uso en LogiCo |
 |---|---|
-| **Jest** | Pruebas unitarias de servicios (`pedidos`, `rutas`, `estados`, `incidencias`) con mocks de la capa BD. |
-| **supertest** | Pruebas de integración del Express app sin levantar puerto. |
-| **Postman** | Colección de 14 escenarios end-to-end con scripts de aserciones, ejecutable también vía Newman en CI. |
+| **Jest** | 6 suites / 38 tests en `functions/tests/` (servicios con `fakeDb`). |
+| **Postman / Newman** | 14 escenarios E2E manuales (`postman/LogiCo.postman_collection.json`). |
+| **supertest** | Dependencia declarada; **sin suites de integración** versionadas (ver `08-plan-pruebas.md` §8.3). |
 
-## 3.7 Resumen comparativo de alternativas descartadas
+Limitaciones de seguridad del MVP: [`06-seguridad.md`](06-seguridad.md) §6.10.
+
+## 3.7 Tabla comparativa de infraestructura (rúbrica 2.1.2.4)
+
+| Tecnología | Motivo de elección | Ventajas | Desventajas | Justificación final |
+|---|---|---|---|---|
+| **Cloud SQL PostgreSQL 15** | Modelo relacional + transacciones ACID | FK, triggers, `FOR UPDATE`, SQL analítico | Costo y tuning vs serverless NoSQL | Única opción que garantiza reglas 1-ruta-activa sin race conditions |
+| **Firebase Functions v2 (Node 20)** | Requisito stack Firebase + API única | Escala automática, integración Auth, sin servidor propio | Cold start, límite timeout | Cumple arquitectura serverless del proyecto integrado |
+| **Firebase Auth** | Identidad gestionada | JWT RS256, MFA, recuperación clave | Vendor lock-in Google | Evita implementar auth propio (OWASP A07) |
+| **Firebase Hosting + CDN** | Frontend estático global | HTTPS gratis, rewrite a Functions | No SSR nativo | Suficiente para HTML/JS modular del prototipo |
+| **Firebase Storage** | Evidencias binarias | Subida directa cliente, reglas por MIME/tamaño | Lectura por cualquier auth (L-02 §6.10) | Separa blobs de metadatos en PostgreSQL |
+| **HTML/CSS/JS vanilla** | Prototipo académico legible | Cero build, FCP rápido | Menos componentización que React | Evaluable sin bundler; migración futura posible |
+| **GCP Cloud (región us-central1)** | Co-ubicación Functions + SQL | SLA 99.95%, IAM, Logging | Facturación compleja | Minimiza latencia API↔BD |
+
+### Hardware y hosting
+
+| Capa | HW / Hosting | Especificación |
+|---|---|---|
+| Cliente | PC / tablet / smartphone del usuario | Navegador Chromium o Safari reciente |
+| Frontend | Firebase Hosting (CDN edge) | Contenido estático, TLS 1.3 |
+| Backend | Cloud Run bajo Functions v2 | 256 MB RAM, hasta 10 instancias |
+| Base de datos | Cloud SQL `db-f1-micro` (dev) / `db-g1-small` (prod) | PostgreSQL 15, backup diario |
+| Archivos | Firebase Storage multi-region | Máx. 8 MB por imagen en rules |
+
+## 3.8 Resumen comparativo de alternativas descartadas
 
 | Alternativa | Por qué se descartó |
 |---|---|

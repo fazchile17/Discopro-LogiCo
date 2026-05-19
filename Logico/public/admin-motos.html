@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LogiCo - Gestión de motos</title>
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div class="shell">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main>
+        <div class="flex-between">
+            <h2 style="margin:0">Gestión de motos</h2>
+            <button id="btn-nuevo">+ Registrar moto</button>
+        </div>
+        <div class="card" style="margin-top:16px">
+            <p class="muted" style="margin:0">
+                Registre vehículos aquí y elija el <strong>motorista asignado</strong> en cada moto.
+                Las rutas de entrega se asignan en <a href="/pedidos.html">Pedidos</a> (detalle → Asignar motorista).
+            </p>
+        </div>
+        <div class="card"><div id="tabla">Cargando…</div></div>
+    </main>
+</div>
+
+<div class="modal-backdrop" id="modal">
+    <div class="modal">
+        <h3 id="modal-titulo">Registrar moto</h3>
+        <form id="form-moto">
+            <input type="hidden" name="id_moto">
+            <div class="row two">
+                <div>
+                    <label>Patente *</label>
+                    <input name="patente" required maxlength="12" placeholder="ABCD12">
+                </div>
+                <div>
+                    <label>Año</label>
+                    <input name="anio" type="number" min="1990" max="2100">
+                </div>
+            </div>
+            <div class="row two">
+                <div>
+                    <label>Marca *</label>
+                    <input name="marca" required maxlength="60">
+                </div>
+                <div>
+                    <label>Modelo *</label>
+                    <input name="modelo" required maxlength="60">
+                </div>
+            </div>
+            <div class="row">
+                <div>
+                    <label>Motorista asignado</label>
+                    <select name="motorista_id" id="sel-motorista">
+                        <option value="">— Sin asignar —</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" id="btn-cancelar">Cancelar</button>
+                <button type="submit">Guardar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="/js/config.js"></script>
+<script type="module">
+import { requireSession, apiFetch, toast, escapeHtml } from '/js/firebase-init.js';
+import { renderSidebar } from '/js/sidebar.js';
+
+const modal = document.getElementById('modal');
+const form = document.getElementById('form-moto');
+const inputIdMoto = form.elements.namedItem('id_moto');
+
+let ultimaListaMotos = [];
+
+async function cargarMotoristasSelect() {
+    const users = await apiFetch('/usuarios?rol=motorista&activo=true');
+    const sel = document.getElementById('sel-motorista');
+    sel.innerHTML = '<option value="">— Sin asignar —</option>' +
+        users.filter((u) => u.activo).map((u) =>
+            `<option value="${u.id_usuario}">${escapeHtml(u.nombre)} ${escapeHtml(u.apellido)}</option>`
+        ).join('');
+}
+
+function pintarTabla(motos) {
+    const cont = document.getElementById('tabla');
+    ultimaListaMotos = motos;
+    if (!motos.length) {
+        cont.innerHTML = '<div class="empty">No hay motos registradas.</div>';
+        return;
+    }
+    cont.innerHTML = `
+        <table>
+            <thead>
+                <tr>
+                    <th>Patente</th><th>Marca / Modelo</th><th>Año</th>
+                    <th>Motorista</th><th>Estado</th><th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${motos.map((m) => `<tr>
+                    <td><strong>${escapeHtml(m.patente)}</strong></td>
+                    <td>${escapeHtml(m.marca)} ${escapeHtml(m.modelo)}</td>
+                    <td>${m.anio || '—'}</td>
+                    <td>${m.motorista_nombre ? escapeHtml(m.motorista_nombre) : '<span class="muted">—</span>'}</td>
+                    <td>${m.activa ? '<span class="badge ok">Activa</span>' : '<span class="badge err">Inactiva</span>'}</td>
+                    <td>
+                        ${m.activa ? `
+                            <button class="btn-secondary btn-edit" data-id="${m.id_moto}">Editar</button>
+                            <button class="btn-secondary btn-off" data-id="${m.id_moto}">Desactivar</button>
+                        ` : ''}
+                    </td>
+                </tr>`).join('')}
+            </tbody>
+        </table>`;
+
+    cont.querySelectorAll('.btn-edit').forEach((b) => {
+        b.addEventListener('click', () => abrirEditar(Number(b.dataset.id), motos));
+    });
+    cont.querySelectorAll('.btn-off').forEach((b) => {
+        b.addEventListener('click', async () => {
+            if (!confirm('¿Desactivar esta moto?')) return;
+            try {
+                await apiFetch(`/motos/${b.dataset.id}/desactivar`, { method: 'POST' });
+                toast('Moto desactivada');
+                await cargarTabla();
+            } catch (e) { toast(e.message, 'error'); }
+        });
+    });
+}
+
+async function cargarTabla() {
+    const cont = document.getElementById('tabla');
+    try {
+        const motos = await apiFetch('/motos?soloActivas=false');
+        pintarTabla(Array.isArray(motos) ? motos : []);
+    } catch (e) {
+        cont.innerHTML = `<div class="empty" style="color:#b91c1c">
+            <p><strong>No se pudo cargar la flota</strong></p>
+            <p>${escapeHtml(e.message)}</p>
+            <p class="muted">Si falta la tabla <code>motos</code>, en Cloud SQL: <code>\\c logico</code> y <code>\\i database/07_motos.sql</code></p>
+        </div>`;
+    }
+}
+
+function abrirNuevo() {
+    form.reset();
+    inputIdMoto.value = '';
+    document.getElementById('modal-titulo').textContent = 'Registrar moto';
+    modal.classList.add('show');
+}
+
+function abrirEditar(id, motos) {
+    const m = motos.find((x) => Number(x.id_moto) === Number(id));
+    if (!m) return;
+    inputIdMoto.value = m.id_moto;
+    form.patente.value = m.patente;
+    form.marca.value = m.marca;
+    form.modelo.value = m.modelo;
+    form.anio.value = m.anio || '';
+    form.motorista_id.value = m.motorista_id || '';
+    document.getElementById('modal-titulo').textContent = 'Editar moto';
+    modal.classList.add('show');
+}
+
+document.getElementById('btn-nuevo').addEventListener('click', abrirNuevo);
+document.getElementById('btn-cancelar').addEventListener('click', () => modal.classList.remove('show'));
+
+form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = {
+        patente: form.patente.value,
+        marca: form.marca.value,
+        modelo: form.modelo.value,
+        anio: form.anio.value ? Number(form.anio.value) : null,
+        motorista_id: form.motorista_id.value ? Number(form.motorista_id.value) : null,
+    };
+    try {
+        let guardada;
+        if (inputIdMoto.value) {
+            guardada = await apiFetch(`/motos/${inputIdMoto.value}`, {
+                method: 'PUT', body: JSON.stringify(body),
+            });
+            toast('Moto actualizada');
+        } else {
+            guardada = await apiFetch('/motos', { method: 'POST', body: JSON.stringify(body) });
+            toast('Moto registrada');
+        }
+        modal.classList.remove('show');
+        await cargarTabla();
+        if (guardada?.id_moto && !ultimaListaMotos.some((m) => Number(m.id_moto) === Number(guardada.id_moto))) {
+            pintarTabla([guardada, ...ultimaListaMotos]);
+        }
+    } catch (err) { toast(err.message, 'error'); }
+});
+
+(async () => {
+    const me = await requireSession();
+    if (me.rol !== 'admin') {
+        window.location.href = '/dashboard.html';
+        return;
+    }
+    renderSidebar('admin-motos.html', me);
+    await cargarMotoristasSelect();
+    await cargarTabla();
+})();
+</script>
+</body>
+</html>

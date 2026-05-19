@@ -3,6 +3,47 @@
 Cada función vive en `functions/src/*.js`, valida sus inputs, ejecuta una transacción
 SQL y registra auditoría. El handler HTTP la conecta en `functions/index.js`.
 
+### Mapa de la API REST por dominio
+
+Prefijo público: `/api` (rewrite desde Hosting). Autenticación: `Authorization: Bearer <ID Token>` salvo `/health`.
+
+```mermaid
+flowchart LR
+    subgraph Pedidos
+        P1[GET/POST /pedidos]
+        P2[GET /pedidos/:id]
+        P3[POST /pedidos/:id/entregar]
+        P4[POST /pedidos/:id/incidencias]
+        P5[POST /pedidos/:id/evidencias]
+    end
+    subgraph Rutas_Motoristas
+        R1[POST /rutas/asignar]
+        R2[POST /rutas/:id/iniciar]
+        R3[GET /motoristas/disponibles]
+        R4[GET/PUT /motoristas/:id/...]
+    end
+    subgraph Admin
+        A1[/farmacias CRUD]
+        A2[/usuarios + rol]
+        A3[/motos CRUD]
+        A4[/auditoria]
+    end
+    subgraph Sistema
+        S1[GET /health]
+        S2[GET /me]
+        S3[/geografia/*]
+    end
+```
+
+| Dominio | Módulo `src/` | Roles típicos |
+|---|---|---|
+| Pedidos y estados | `pedidos.js`, `estados.js` | operadora, admin, motorista (asignado) |
+| Rutas y disponibilidad | `rutas.js` | operadora, admin, motorista |
+| Incidencias / reprogramación | `incidencias.js`, `reprogramaciones.js` | motorista, operadora |
+| Evidencias | `evidencias.js` + Storage | motorista |
+| Mantenedores | `farmacias.js`, `usuarios.js`, `motos.js` | admin |
+| Transversal | `auth.js`, `audit.js` | todos / admin |
+
 ## 11.1 `crearPedido()`
 
 | Atributo | Valor |
@@ -212,3 +253,21 @@ Salida JSON:
 | registrarIncidencia | ✓ | ✓ pedido | ✓ WARN | ✓ |
 | reprogramarPedido | ✓ | ✓ pedido | ✓ | — |
 | validarDisponibilidadMotorista | — | — | — | ✓ |
+
+---
+
+## 11.9 Autorización HTTP — contrato real vs política de negocio
+
+| Endpoint | `requireRole` en ruta | Validación adicional en servicio | Nota |
+|---|---|---|---|
+| `POST /pedidos` | operadora, admin | trigger BD rol | ✅ |
+| `GET /pedidos` | auth | filtro si motorista | ✅ listado |
+| `GET /pedidos/:id` | auth | **ninguna** por rol/asignación | ⚠ L-01 §6.10 |
+| `POST /pedidos/:id/entregar` | motorista, admin | motorista asignado | ✅ |
+| `POST /pedidos/:id/incidencias` | auth | motorista solo ruta propia | ✅ motorista; operadora libre |
+| `POST /pedidos/:id/evidencias` | auth | solo existe pedido | ⚠ L-03 §6.10 |
+| `GET /motoristas/:id/rutas` | auth | motorista = `:id` | ✅ |
+| CRUD `/motos`, mutaciones `/farmacias` | admin | servicios admin | ✅ |
+
+Fuente: `functions/index.js` y servicios en `functions/src/`. Matriz de datos del cliente:
+[`06-seguridad.md`](06-seguridad.md) §6.11.

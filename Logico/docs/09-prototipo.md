@@ -4,6 +4,18 @@ El prototipo está implementado en HTML + CSS + JavaScript ES Modules.
 Es **funcional**, no un mock visual: cada pantalla está cableada a la API real
 de Firebase Functions y a PostgreSQL.
 
+## 9.0 Contexto de negocio en la UI
+
+| Rol | Objetivo en pantalla | Pantallas principales |
+|---|---|---|
+| Operadora | Crear pedidos, asignar motorista, reprogramar | `dashboard`, `pedidos`, `crear-pedido`, `pedido` |
+| Motorista | Ver ruta activa, iniciar, entregar o reportar incidencia | `motorista` |
+| Admin | Mantenedores + misma visión operativa | `admin-*` + dashboard |
+
+Glosario de estados y limitaciones de acceso API: [`02-arquitectura-4+1.md`](02-arquitectura-4+1.md) §2.0.1
+y [`06-seguridad.md`](06-seguridad.md) §6.11. La UI del motorista **no muestra** pedidos ajenos;
+la defensa debe distinguir **experiencia de usuario** vs **contrato HTTP** documentado.
+
 ## 9.1 Pantallas
 
 | Archivo | Roles | Propósito |
@@ -11,9 +23,53 @@ de Firebase Functions y a PostgreSQL.
 | `index.html` | Todos | Login con Firebase Auth |
 | `dashboard.html` | operadora, admin | KPIs + últimos pedidos |
 | `pedidos.html` | operadora, admin | Listado con filtros por estado |
-| `pedido.html` | Todos | Detalle + asignar / reprogramar / incidencia |
+| `pedido.html` | operadora, admin, motorista (enlace desde su ruta) | Detalle + asignar / reprogramar / incidencia |
 | `crear-pedido.html` | operadora, admin | Formulario nuevo pedido |
 | `motorista.html` | motorista, admin | Ruta activa + iniciar / entregar / incidencia |
+| `admin-farmacias.html` | admin | CRUD farmacias |
+| `admin-motoristas.html` | admin | Usuarios motorista + disponibilidad |
+| `admin-motos.html` | admin | Flota y asignación patente ↔ motorista |
+| `admin-usuarios.html` | admin | Alta usuarios y cambio de rol |
+| `admin-auditoria.html` | admin | Consulta `audit_logs` |
+
+### 9.1.1 Mapa de pantallas por rol
+
+```mermaid
+flowchart TB
+    LOGIN[index.html]
+
+  subgraph Operadora
+    D[dashboard]
+    P[pedidos]
+    CP[crear-pedido]
+    DET[pedido detalle]
+  end
+
+  subgraph Motorista
+    M[motorista]
+  end
+
+  subgraph Admin
+    AF[admin-farmacias]
+    AM[admin-motoristas]
+    AMT[admin-motos]
+    AU[admin-usuarios]
+    AA[admin-auditoria]
+  end
+
+  LOGIN -->|operadora| D
+  LOGIN -->|motorista| M
+  LOGIN -->|admin| D
+  D --> P
+  P --> CP
+  P --> DET
+  M --> DET
+  D --> AF
+  D --> AM
+  D --> AMT
+  D --> AU
+  D --> AA
+```
 
 ## 9.2 Sistema de diseño
 
@@ -95,7 +151,36 @@ firebase emulators:start
 # Login con admin@logico.app / Admin123! (después de crear usuarios en Auth emulator)
 ```
 
-## 9.8 Roadmap visual (post-MVP)
+## 9.8 Flujos pedidos y motorista (manual operativo)
+
+**URL:** https://logico-20f73.web.app
+
+### Operadora / admin — pedidos
+
+1. Login → **Pedidos** → **Crear pedido** (`POST /api/pedidos`).
+2. Abrir detalle → **Asignar motorista** (`GET /motoristas/disponibles`, `POST /rutas/asignar`).
+
+### Motorista
+
+1. Login → redirección a **Mis rutas** (`motorista.html`).
+2. Activar **Disponible** (`PUT /motoristas/{id}/disponibilidad`).
+3. Ver **moto asignada** (`GET /motoristas/{id}/moto`) — la asigna el admin en **Motos**.
+4. Con ruta activa: **Iniciar ruta** → **Marcar entregado** (o incidencia).
+
+```mermaid
+flowchart LR
+    subgraph Operadora
+        A[Crear pedido] --> B[Asignar motorista]
+    end
+    subgraph Motorista
+        C[Disponible ON] --> D[Ver rutas]
+        D --> E[Iniciar ruta]
+        E --> F[Entregar]
+    end
+    B --> D
+```
+
+## 9.9 Roadmap visual (post-MVP)
 
 | Mejora | Prioridad |
 |---|---|

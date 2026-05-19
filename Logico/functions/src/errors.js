@@ -35,8 +35,12 @@ function errorHandler(err, _req, res, _next) {
     // Errores de PostgreSQL → mapear a 409/422 más descriptivos
     if (err.code) {
         if (err.code === '23505') {
+            const msg = (err.constraint || err.detail || '').includes('motorista')
+                || (err.detail || '').includes('motorista')
+                ? 'Ese motorista ya tiene una moto activa asignada. Desactive la anterior o asígnela a otro motorista.'
+                : 'Violación de unicidad (registro duplicado).';
             return res.status(409).json({
-                error: 'Violación de unicidad (registro duplicado).',
+                error: msg,
                 details: err.detail,
             });
         }
@@ -55,6 +59,15 @@ function errorHandler(err, _req, res, _next) {
         if (err.code === 'P0001') {
             // RAISE EXCEPTION desde plpgsql → regla de negocio
             return res.status(422).json({ error: err.message });
+        }
+        if (err.code === '42P01') {
+            const falta = err.message?.includes('motos') ? 'motos' : 'tabla';
+            return res.status(503).json({
+                error: falta === 'motos'
+                    ? 'La tabla motos no existe en la base de datos. Ejecute database/07_motos.sql en la base "logico" (\\c logico).'
+                    : `Falta una tabla en PostgreSQL: ${err.message}`,
+                code: err.code,
+            });
         }
     }
     console.error('[unhandled]', err);

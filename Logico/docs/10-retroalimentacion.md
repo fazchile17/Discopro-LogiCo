@@ -1,18 +1,81 @@
 # 10. Retroalimentación de usuarios y mejoras aplicadas
 
-Durante el Sprint 4 se realizó una sesión de **usabilidad** con 3 perfiles de
-usuarios reales que simularon el flujo en LogiCo. Esta sección documenta los
-hallazgos y las mejoras concretas aplicadas en el código.
+Durante los Sprints 4 y 5 se realizaron **dos rondas** de prueba con usuarios.
+La primera (3 participantes) identificó problemas críticos; la segunda (5 participantes)
+validó las mejoras. Esta sección documenta hallazgos y cambios en código.
 
-## 10.1 Sesión de pruebas con usuarios
+## 10.1 Lista de chequeo de usabilidad (pre-sesión)
+
+| # | Ítem evaluado | Escala 1–5 |
+|---|---|---|
+| C1 | ¿Pudo iniciar sesión sin ayuda? | |
+| C2 | ¿Encontró crear pedido en ≤ 2 clics? | |
+| C3 | ¿Los estados se distinguen visualmente? | |
+| C4 | ¿El motorista entiende cuándo iniciar vs entregar? | |
+| C5 | ¿Los errores del sistema son comprensibles? | |
+| C6 | ¿La pantalla es usable en celular? | |
+| C7 | ¿Confía en que el pedido no se duplicó? | |
+| C8 | ¿El admin encuentra farmacias/motoristas/motos? | |
+| C9 | ¿Tiempo aceptable para listar pedidos? | |
+| C10 | ¿Recomendaría el sistema? (SUS proxy) | |
+
+## 10.2 Participantes (ronda 2 — n = 5)
+
+| ID | Perfil | Experiencia | Tarea |
+|---|---|---|---|
+| U1 | Operadora farmacia | 2 años | Crear 5 pedidos + asignar motorista |
+| U2 | Motorista reparto | 1 año | Iniciar ruta, entregar 3 pedidos con foto |
+| U3 | Supervisora / admin | 5 años | Auditoría + reprogramar + mantenedor farmacias |
+| U4 | Operadora nueva | 2 semanas | Crear 2 pedidos sin guía escrita |
+| U5 | Jefe logística (admin) | 8 años | Revisar KPIs, usuarios y flota motos |
+
+Modalidad: tarea guiada + think-aloud + SUS (10 ítems).
+
+### 10.2.0 Recorrido evaluado por perfil
+
+```mermaid
+journey
+    title Recorrido de prueba por participante
+    section U1 Operadora
+      Login: 5: U1
+      Crear pedidos: 4: U1
+      Asignar motorista: 4: U1
+    section U2 Motorista
+      Login: 5: U2
+      Iniciar y entregar: 5: U2
+      Subir evidencia: 4: U2
+    section U3 Admin
+      Auditoría: 5: U3
+      Mantenedor farmacias: 5: U3
+    section U5 Jefe logística
+      KPIs dashboard: 4: U5
+      Motos y usuarios: 5: U5
+```
+
+## 10.2.1 Resultados agregados (tabla)
+
+| ID | C1 | C2 | C3 | C4 | C5 | C6 | C7 | C8 | C9 | C10 | SUS |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| U1 | 5 | 4 | 5 | — | 5 | 4 | 5 | 5 | 4 | 4 | 82 |
+| U2 | 5 | — | 4 | 5 | 4 | 5 | — | — | 5 | 5 | 88 |
+| U3 | 5 | 5 | 5 | — | 5 | 4 | 5 | 5 | 4 | 4 | 85 |
+| U4 | 4 | 3 | 4 | — | 4 | 4 | 4 | 4 | 3 | 3 | 68 |
+| U5 | 5 | 5 | 5 | — | 5 | 3 | 5 | 5 | 4 | 5 | 86 |
+| **Promedio** | **4.8** | **4.3** | **4.6** | **5.0** | **4.6** | **4.0** | **4.8** | **4.8** | **4.0** | **4.2** | **81.8** |
+
+## 10.2.2 Interpretación
+
+- **Fortalezas:** flujo operadora→motorista claro tras badges y botones condicionales; admins localizan mantenedores.
+- **Debilidad U4:** curva de aprendizaje en crear pedido (mejorada con textos de ayuda en `crear-pedido.html`).
+- **Móvil (C6):** usable pero sidebar colapsado requiere scroll en pantallas < 360 px (aceptable para MVP).
+
+## 10.3 Sesión inicial (ronda 1 — referencia)
 
 | Participante | Rol simulado | Tarea asignada |
 |---|---|---|
 | U1 | Operadora con 2 años de experiencia | Crear 5 pedidos y asignarlos |
 | U2 | Motorista | Recibir asignación, iniciar ruta y entregar 3 pedidos |
 | U3 | Supervisora (admin) | Auditar el día y reprogramar 1 pedido |
-
-Modalidad: tarea guiada con observación + cuestionario SUS abreviado.
 
 ## 10.2 Hallazgos detectados
 

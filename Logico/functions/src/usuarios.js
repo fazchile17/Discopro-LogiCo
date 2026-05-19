@@ -16,7 +16,12 @@
  * (defensa en profundidad).
  */
 const bcrypt = require('bcryptjs');
-const { withTransaction, pool } = require('./db');
+const { withTransaction, withClient, pool } = require('./db');
+const {
+    ensureUsuariosTableResolved,
+    getTblUsuarios,
+    diagnosticarUsuarios,
+} = require('./usuarios-table');
 const { admin } = require('./auth');
 const {
     ValidationError,
@@ -36,6 +41,86 @@ const ROLES_VALIDOS = ['admin', 'operadora', 'motorista'];
 // Helpers internos
 // ---------------------------------------------------------------------
 
+function normalizarRol(rol) {
+    return String(rol || '').trim().toLowerCase();
+}
+
+function mismoId(a, b) {
+    return Number(a) === Number(b);
+}
+
+async function asegurarDisponibilidadMotorista(client, motoristaId) {
+    await client.query(
+        `INSERT INTO disponibilidad_motorista (motorista_id, disponible)
+         VALUES ($1, TRUE)
+         ON CONFLICT (motorista_id) DO NOTHING`,
+        [motoristaId]
+    );
+}
+
+/**
+ * Persiste el rol (autocommit, sin BEGIN/COMMIT).
+ * Prefiere fn_cambiar_rol_usuario en producción (SECURITY DEFINER, una sentencia).
+ */
+async function persistirCambioRol(runner, tbl, id, rolNuevo) {
+    const q = runner.query.bind(runner);
+    let usóFn = false;
+
+    if (process.env.NODE_ENV !== 'test') {
+        try {
+            const { rows } = await q(
+                `SELECT id_usuario, rol::text AS rol, correo
+                   FROM fn_cambiar_rol_usuario($1, $2)`,
+                [id, rolNuevo]
+            );
+            if (rows[0]?.rol === rolNuevo) {
+                usóFn = true;
+                const { rows: uid } = await q(
+                    `SELECT firebase_uid FROM ${tbl} WHERE id_usuario = $1`,
+                    [id]
+                );
+                return {
+                    ...rows[0],
+                    firebase_uid: uid[0]?.firebase_uid ?? null,
+                    usó_fn_sql: true,
+                };
+            }
+        } catch (e) {
+            if (e.code !== '42883' && e.code !== '42P01') throw e;
+        }
+    }
+
+    const { rows: actualizados } = await q(
+        `UPDATE ${tbl}
+            SET rol = $2::varchar
+          WHERE id_usuario = $1
+          RETURNING id_usuario, correo, rol::text AS rol, firebase_uid`,
+        [id, rolNuevo]
+    );
+    if (actualizados.length !== 1) {
+        throw new BusinessRuleError(
+            `No se pudo actualizar el rol del usuario #${id}.`
+        );
+    }
+    const fila = actualizados[0];
+    if (fila.rol !== rolNuevo) {
+        throw new BusinessRuleError(
+            `El rol en base de datos (${fila.rol}) no coincide con el solicitado (${rolNuevo}). ` +
+            'Si el usuario es admin principal, transfiere esa bandera antes de cambiar el rol.'
+        );
+    }
+    return { ...fila, usó_fn_sql: usóFn };
+}
+
+async function syncRolFirebaseAuth(firebaseUid, rol) {
+    if (!firebaseUid) return;
+    try {
+        await admin.auth().setCustomUserClaims(firebaseUid, { logico_rol: rol });
+    } catch (e) {
+        console.warn('[usuarios] setCustomUserClaims falló:', e.message);
+    }
+}
+
 function asegurarAdmin(usuario) {
     if (!usuario || usuario.rol !== 'admin') {
         throw new BusinessRuleError('Solo un administrador puede ejecutar esta acción.');
@@ -43,10 +128,12 @@ function asegurarAdmin(usuario) {
 }
 
 async function obtenerUsuarioPlano(client, idUsuario) {
+    await ensureUsuariosTableResolved();
+    const tbl = getTblUsuarios();
     const { rows } = await client.query(
         `SELECT id_usuario, firebase_uid, correo, nombre, apellido,
                 rol, activo, es_admin_principal, fecha_creacion
-           FROM usuarios
+           FROM ${tbl}
           WHERE id_usuario = $1
           FOR UPDATE`,
         [idUsuario]
@@ -68,7 +155,7 @@ function aplicarJerarquia(actor, target, tipoAccion) {
     const accionesAutoProhibidas = ['eliminar', 'desactivar', 'cambiar_rol'];
     if (
         accionesAutoProhibidas.includes(tipoAccion) &&
-        actor.id_usuario === target.id_usuario
+        mismoId(actor.id_usuario, target.id_usuario)
     ) {
         throw new BusinessRuleError(
             'No puedes ejecutar esta acción sobre tu propia cuenta.'
@@ -88,14 +175,16 @@ function aplicarJerarquia(actor, target, tipoAccion) {
         }
     }
 
-    // Admin secundario no puede gestionar a otros admins (solo a operadoras/motoristas).
+    // Admin secundario no puede eliminar/desactivar/cambiar rol de OTRO admin
+    // (sí puede crear admins y cambiar operadora/motorista).
     if (
         actor.es_admin_principal !== true &&
         target.rol === 'admin' &&
-        target.id_usuario !== actor.id_usuario
+        !mismoId(target.id_usuario, actor.id_usuario) &&
+        ['eliminar', 'desactivar', 'cambiar_rol'].includes(tipoAccion)
     ) {
         throw new BusinessRuleError(
-            'Solo el admin principal puede gestionar a otros administradores.'
+            'Solo el admin principal puede modificar a otros administradores.'
         );
     }
 }
@@ -112,6 +201,8 @@ function aplicarJerarquia(actor, target, tipoAccion) {
  * crear a otros con rol `admin`.
  */
 async function crearUsuario({ payload, actor, req }) {
+    await ensureUsuariosTableResolved();
+    const tbl = getTblUsuarios();
     asegurarAdmin(actor);
 
     const errores = [];
@@ -126,17 +217,8 @@ async function crearUsuario({ payload, actor, req }) {
     }
     if (errores.length) throw new ValidationError(errores.join('; '));
 
-    if (rol === 'admin' && actor.es_admin_principal !== true) {
-        await registrarIntentoBloqueado({
-            usuario: actor,
-            motivo: 'Admin secundario intentó crear otro admin',
-            entidadAfectada: 'usuario',
-            req,
-        });
-        throw new BusinessRuleError(
-            'Solo el admin principal puede crear nuevos administradores.'
-        );
-    }
+    // Cualquier usuario con rol admin puede crear otros admins (panel académico).
+    // La protección fuerte sigue en BD para el único admin principal (triggers 05).
 
     // Hash bcrypt para el fallback en BD (Firebase Auth maneja el hash real).
     const hash = bcrypt.hashSync(contrasena, 10);
@@ -162,7 +244,7 @@ async function crearUsuario({ payload, actor, req }) {
     try {
         const created = await withTransaction(async (client) => {
             const { rows } = await client.query(
-                `INSERT INTO usuarios
+                `INSERT INTO ${tbl}
                     (firebase_uid, nombre, apellido, correo, contrasena, rol, activo)
                  VALUES ($1,$2,$3,$4,$5,$6, TRUE)
                  RETURNING id_usuario, firebase_uid, nombre, apellido,
@@ -170,6 +252,10 @@ async function crearUsuario({ payload, actor, req }) {
                 [firebaseUid, nombre.trim(), apellido.trim(), correo.toLowerCase(), hash, rol]
             );
             const usuario = rows[0];
+
+            if (usuario.rol === 'motorista') {
+                await asegurarDisponibilidadMotorista(client, usuario.id_usuario);
+            }
 
             await registrarAuditoria({
                 client,
@@ -182,6 +268,9 @@ async function crearUsuario({ payload, actor, req }) {
             });
             return usuario;
         });
+        if (created.firebase_uid) {
+            await syncRolFirebaseAuth(created.firebase_uid, created.rol);
+        }
         return created;
     } catch (e) {
         // Rollback de Firebase Auth si la inserción en BD falla.
@@ -223,10 +312,10 @@ async function eliminarUsuario({ idUsuario, actor, req, hardDelete = false }) {
         }
 
         if (hardDelete) {
-            await client.query(`DELETE FROM usuarios WHERE id_usuario = $1`, [id]);
+            await client.query(`DELETE FROM ${getTblUsuarios()} WHERE id_usuario = $1`, [id]);
         } else {
             await client.query(
-                `UPDATE usuarios SET activo = FALSE WHERE id_usuario = $1`,
+                `UPDATE ${getTblUsuarios()} SET activo = FALSE WHERE id_usuario = $1`,
                 [id]
             );
         }
@@ -286,7 +375,7 @@ async function setActivoUsuario({ idUsuario, activo, actor, req }) {
         }
 
         await client.query(
-            `UPDATE usuarios SET activo = $2 WHERE id_usuario = $1`,
+            `UPDATE ${getTblUsuarios()} SET activo = $2 WHERE id_usuario = $1`,
             [id, activo === true]
         );
 
@@ -322,24 +411,18 @@ async function setActivoUsuario({ idUsuario, activo, actor, req }) {
 async function cambiarRolUsuario({ idUsuario, nuevoRol, actor, req }) {
     asegurarAdmin(actor);
     const id = Number(idUsuario);
-    if (!ROLES_VALIDOS.includes(nuevoRol)) {
+    const rolNuevo = normalizarRol(nuevoRol);
+    if (!ROLES_VALIDOS.includes(rolNuevo)) {
         throw new ValidationError(`Rol inválido (válidos: ${ROLES_VALIDOS.join(', ')}).`);
     }
 
-    return withTransaction(async (client) => {
+    await ensureUsuariosTableResolved();
+    const tbl = getTblUsuarios();
+
+    const resultado = await withClient(async (client) => {
         const target = await obtenerUsuarioPlano(client, id);
         try {
             aplicarJerarquia(actor, target, 'cambiar_rol');
-            // Promover a admin requiere ser admin principal.
-            if (
-                nuevoRol === 'admin' &&
-                target.rol !== 'admin' &&
-                actor.es_admin_principal !== true
-            ) {
-                throw new BusinessRuleError(
-                    'Solo el admin principal puede promover usuarios a admin.'
-                );
-            }
         } catch (e) {
             await registrarIntentoBloqueado({
                 usuario: actor,
@@ -352,10 +435,31 @@ async function cambiarRolUsuario({ idUsuario, nuevoRol, actor, req }) {
         }
 
         const rolAnterior = target.rol;
-        await client.query(
-            `UPDATE usuarios SET rol = $2 WHERE id_usuario = $1`,
-            [id, nuevoRol]
+        const fila = await persistirCambioRol(client, tbl, id, rolNuevo);
+
+        if (rolNuevo === 'motorista' && !fila.usó_fn_sql) {
+            await asegurarDisponibilidadMotorista(client, id);
+        }
+
+        const { rows: post } = await client.query(
+            `SELECT rol::text AS rol FROM ${tbl} WHERE id_usuario = $1`,
+            [id]
         );
+        const rolPersistido = post[0]?.rol;
+        if (rolPersistido !== rolNuevo) {
+            const diag = await diagnosticarUsuarios(id);
+            diag.ayuda_psql =
+                'La API usa la base "logico". En Cloud Shell: \\c logico (no "postgres"). ' +
+                'Ejecute database/09_diagnostico_usuarios.sql desde la carpeta del repo.';
+            console.error('[usuarios] rol no persistió tras UPDATE', {
+                id, esperado: rolNuevo, leido: rolPersistido, tbl, diag,
+            });
+            throw new BusinessRuleError(
+                `El rol no se guardó (sigue "${rolPersistido || '?'}"). ` +
+                `Tabla: ${tbl}, BD: ${diag.entorno?.db || '?'}. Revise "details".`,
+                diag
+            );
+        }
 
         await registrarAuditoria({
             client,
@@ -363,11 +467,25 @@ async function cambiarRolUsuario({ idUsuario, nuevoRol, actor, req }) {
             accion: ACCIONES.ROL_CAMBIADO,
             entidadAfectada: 'usuario',
             idEntidad: id,
-            detalle: { antes: rolAnterior, despues: nuevoRol, correo: target.correo },
+            detalle: { antes: rolAnterior, despues: fila.rol, correo: fila.correo },
             req,
         });
-        return { id_usuario: id, rol: nuevoRol };
+
+        return {
+            id_usuario: fila.id_usuario,
+            rol: fila.rol,
+            rol_anterior: rolAnterior,
+            firebase_uid: fila.firebase_uid,
+            rol_verificado: rolPersistido,
+            tabla_usuarios: tbl,
+        };
     });
+
+    if (resultado.firebase_uid) {
+        await syncRolFirebaseAuth(resultado.firebase_uid, resultado.rol);
+    }
+    const { firebase_uid: _uid, ...respuesta } = resultado;
+    return respuesta;
 }
 
 // ---------------------------------------------------------------------
@@ -381,7 +499,7 @@ async function cambiarRolUsuario({ idUsuario, nuevoRol, actor, req }) {
 async function validarAdminPrincipal() {
     const { rows } = await pool.query(
         `SELECT id_usuario, correo, nombre, apellido, activo
-           FROM usuarios
+           FROM ${getTblUsuarios()}
           WHERE es_admin_principal = TRUE
           LIMIT 2`
     );
@@ -401,6 +519,8 @@ async function validarAdminPrincipal() {
 // ---------------------------------------------------------------------
 
 async function listarUsuarios({ rol, activo } = {}) {
+    await ensureUsuariosTableResolved();
+    const tbl = getTblUsuarios();
     const filtros = [];
     const params = [];
     if (rol) {
@@ -414,7 +534,7 @@ async function listarUsuarios({ rol, activo } = {}) {
     const sql = `
         SELECT id_usuario, nombre, apellido, correo, rol, activo,
                es_admin_principal, fecha_creacion
-          FROM usuarios
+          FROM ${tbl}
          ${filtros.length ? 'WHERE ' + filtros.join(' AND ') : ''}
          ORDER BY es_admin_principal DESC, rol, apellido, nombre`;
     const { rows } = await pool.query(sql, params);
@@ -428,5 +548,6 @@ module.exports = {
     cambiarRolUsuario,
     validarAdminPrincipal,
     listarUsuarios,
+    diagnosticarUsuarios,
     ROLES_VALIDOS,
 };

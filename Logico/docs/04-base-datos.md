@@ -3,20 +3,45 @@
 > Esquema completo en `database/01_schema.sql`, triggers en `02_triggers.sql`,
 > seeds en `03_seeds.sql` y datos no estructurados en `04_audit_storage.sql`.
 
-## 4.1 Tablas principales (10 entidades)
+## 4.1 Inventario de tablas
+
+El esquema se despliega en **dos capas**: núcleo logístico (`01_schema.sql` … `04_audit_storage.sql`)
+y extensiones administrativas/geográficas (`05` … `08`). En total hay **16 tablas de negocio**
+más catálogos de geografía.
+
+### 4.1.1 Núcleo logístico (10 tablas — `01_schema.sql` + `04_audit_storage.sql`)
+
+| # | Tabla | PK | Script | Descripción |
+|---|---|---|---|---|
+| 1 | `usuarios` | `id_usuario` | 01 | Operadoras, motoristas y admins |
+| 2 | `estados_pedido` | `id_estado` | 01 | Catálogo de estados (6 valores fijos) |
+| 3 | `pedidos` | `id_pedido` | 01 | Tabla central del reparto |
+| 4 | `historial_estados` | `id_historial` | 01 | Trazabilidad append-only |
+| 5 | `rutas` | `id_ruta` | 01 | Asignación motorista ↔ pedido |
+| 6 | `disponibilidad_motorista` | `id_disponibilidad` | 01 | Flag operativo del motorista |
+| 7 | `incidencias` | `id_incidencia` | 01 | Eventos de no-entrega |
+| 8 | `reprogramaciones` | `id_reprogramacion` | 01 | Cambios de fecha programada |
+| 9 | `audit_logs` | `id_log` | 04 | Auditoría técnica JSONB |
+| 10 | `evidencias` | `id_evidencia` | 04 | Metadatos de archivos en Storage |
+
+### 4.1.2 Extensiones administrativas (`05_admin_farmacias.sql`, `07_motos.sql`)
 
 | # | Tabla | PK | Descripción |
 |---|---|---|---|
-| 1 | `usuarios` | `id_usuario` | Operadoras, motoristas y admins |
-| 2 | `estados_pedido` | `id_estado` | Catálogo de estados (6 valores fijos) |
-| 3 | `pedidos` | `id_pedido` | Tabla central |
-| 4 | `historial_estados` | `id_historial` | Trazabilidad completa |
-| 5 | `rutas` | `id_ruta` | Asignación motorista ↔ pedido |
-| 6 | `disponibilidad_motorista` | `id_disponibilidad` | Estado actual del motorista |
-| 7 | `incidencias` | `id_incidencia` | Eventos de no-entrega |
-| 8 | `reprogramaciones` | `id_reprogramacion` | Cambios de fecha |
-| 9 | `audit_logs` | `id_log` | Auditoría JSONB (no estructurado) |
-| 10 | `evidencias` | `id_evidencia` | Metadatos de archivos en Storage |
+| 11 | `farmacias` | `id_farmacia` | Puntos de despacho / origen opcional del pedido |
+| 12 | `auditoria` | `id_auditoria` | Auditoría estructurada de acciones admin (≠ `audit_logs`) |
+| 13 | `motos` | `id_moto` | Flota y asignación patente ↔ motorista |
+
+### 4.1.3 Geografía Chile (`06_geografia_chile.sql`)
+
+| # | Tabla | PK | Descripción |
+|---|---|---|---|
+| 14 | `regiones` | `id_region` | Catálogo regional |
+| 15 | `provincias` | `id_provincia` | Provincias por región |
+| 16 | `comunas` | `id_comuna` | Comunas; `farmacias.comuna_id` referencia aquí |
+
+> `pedidos.farmacia_id` se agrega en `05_admin_farmacias.sql` (ALTER). Sin ejecutar ese script,
+> el API de farmacias y el selector en `crear-pedido.html` fallan.
 
 ## 4.2 Foreign Keys e integridad referencial
 
@@ -95,11 +120,48 @@ v_pedidos_completos        -- pedido + estado + operadora + ruta + motorista (JO
 v_motoristas_disponibles   -- motoristas con flag disponible y sin ruta activa
 ```
 
-## 4.6 Diagrama del MER
+## 4.6 Normalización (1FN – 3FN)
 
-Ver `docs/02-arquitectura-4+1.md` sección 2.1.1 para el ER en formato mermaid.
+| Forma normal | Cumplimiento en LogiCo | Ejemplo |
+|---|---|---|
+| **1FN** | Atributos atómicos; sin listas repetidas en columnas | `detalle_pedido` es texto único; estados en catálogo `estados_pedido` |
+| **2FN** | Todo atributo no clave depende de la PK completa | En `historial_estados`, `comentario` depende de `id_historial`, no de `pedido_id` solo |
+| **3FN** | Sin dependencias transitivas entre no claves | `pedidos.estado_actual_id` es redundancia controlada; la fuente de verdad es `historial_estados` + trigger de sincronía |
 
-## 4.7 Diccionario de datos resumido
+**Modelo conceptual vs lógico:**
+
+- **Conceptual:** entidades Usuario, Pedido, Ruta, Farmacia, Moto, Incidencia (ver ER en `docs/02-arquitectura-4+1.md`).
+- **Lógico:** implementación PostgreSQL en `database/01_schema.sql` + extensiones `05_admin_farmacias.sql`, `07_motos.sql`.
+- **Desnormalización intencional:** `pedidos.estado_actual_id` para consultas rápidas; se mantiene consistente vía trigger.
+
+## 4.7 Diagrama del MER
+
+El modelo entidad-relación completo (incluye `motos`, `farmacias`, `audit_logs`) está en
+[`02-arquitectura-4+1.md`](02-arquitectura-4+1.md) §2.1.1.
+
+### 4.7.1 Máquina de estados del pedido (persistencia)
+
+Los nombres de estado en `estados_pedido.nombre_estado` deben coincidir con
+`functions/src/estados.js`. El historial es **append-only** en `historial_estados`;
+el trigger `trg_sync_estado_pedido` mantiene `pedidos.estado_actual_id`.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    retiro_receta --> retiro_pedido
+    retiro_receta --> reprogramado
+    retiro_pedido --> en_ruta
+    retiro_pedido --> reprogramado
+    retiro_pedido --> no_entregado
+    en_ruta --> entregado
+    en_ruta --> no_entregado
+    no_entregado --> reprogramado
+    no_entregado --> retiro_pedido
+    reprogramado --> retiro_receta
+    reprogramado --> retiro_pedido
+```
+
+## 4.8 Diccionario de datos resumido
 
 ### `pedidos` (tabla central)
 
@@ -118,6 +180,7 @@ Ver `docs/02-arquitectura-4+1.md` sección 2.1.1 para el ER en formato mermaid.
 | `operadora_crea_id` | BIGINT | NO | — | FK usuarios |
 | `operadora_modifica_id` | BIGINT | SI | NULL | FK usuarios (último que tocó) |
 | `activo` | BOOLEAN | NO | TRUE | Soft delete |
+| `farmacia_id` | BIGINT | SI | NULL | FK `farmacias` (script `05_admin_farmacias.sql`) |
 
 ### `historial_estados` (trazabilidad inmutable)
 
@@ -132,13 +195,13 @@ Ver `docs/02-arquitectura-4+1.md` sección 2.1.1 para el ER en formato mermaid.
 
 > Esta tabla es **append-only**. Nunca se hace UPDATE ni DELETE en producción.
 
-## 4.8 Estrategia de migraciones
+## 4.9 Estrategia de migraciones
 
 Se usa una convención numérica (`01_*.sql`, `02_*.sql`, ...) ejecutada con `psql -f`.
 Para producción se recomienda migrar a una herramienta como **node-pg-migrate** o **Flyway**
 con tabla `schema_migrations`.
 
-## 4.9 Plan de respaldos
+## 4.10 Plan de respaldos
 
 | Tipo | Frecuencia | Retención | Responsable |
 |---|---|---|---|
@@ -146,3 +209,39 @@ con tabla `schema_migrations`.
 | WAL / point-in-time recovery | Continuo | 7 días | Google |
 | Export lógico (`pg_dump`) | Semanal lunes 03:00 | 30 días | DevOps (cron) |
 | Export anual archivado | Anual | 7 años | DevOps + GCS coldline |
+
+## 4.11 Scripts SQL (criterio 2.1.4.9)
+
+### Checklist obligatorio (base `logico`, no `postgres`)
+
+```text
+\c logico
+\i database/01_schema.sql
+\i database/02_triggers.sql
+\i database/03_seeds.sql
+\i database/04_audit_storage.sql
+\i database/05_admin_farmacias.sql
+\i database/06_geografia_chile.sql
+\i database/07_motos.sql
+-- Opcionales operación:
+\i database/08_cambiar_rol_usuario.sql
+\i database/09_diagnostico_usuarios.sql
+```
+
+| Archivo | Propósito |
+|---|---|
+| `database/01_schema.sql` … `04_audit_storage.sql` | Núcleo logístico + audit JSONB + evidencias |
+| `database/05_admin_farmacias.sql` | `farmacias`, `auditoria`, `pedidos.farmacia_id` |
+| `database/06_geografia_chile.sql` | Regiones / provincias / comunas |
+| `database/07_motos.sql` | Tabla `motos` + seed demo |
+| `database/08_cambiar_rol_usuario.sql` | Función RPC cambio de rol |
+| `database/create_tables.sql` + `primary_keys.sql` + `foreign_keys.sql` | Variante modular (rúbrica DDL separado) |
+| `database/seed.sql` | Datos demo alternativos |
+| `database/drop_*.sql` | Desinstalación controlada |
+
+### Doble modelo de auditoría
+
+| Tabla | Formato | Quién escribe | Uso |
+|---|---|---|---|
+| `audit_logs` | JSONB flexible (`payload`) | Middleware + `logAudit()` en mutaciones API | Trazabilidad técnica, consultas GIN |
+| `auditoria` | Columnas fijas (`accion`, `entidad_afectada`, `exito`) | Servicios admin (`farmacias.js`, `usuarios.js`, …) | Informe de mantenedores en `admin-auditoria.html` |

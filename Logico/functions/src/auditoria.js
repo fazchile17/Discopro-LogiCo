@@ -18,6 +18,9 @@ const ACCIONES = Object.freeze({
     FARMACIA_ACTUALIZADA:     'farmacia_actualizada',
     FARMACIA_DESACTIVADA:     'farmacia_desactivada',
     FARMACIA_ACTIVADA:        'farmacia_activada',
+    MOTO_CREADA:              'moto_creada',
+    MOTO_ACTUALIZADA:         'moto_actualizada',
+    MOTO_DESACTIVADA:         'moto_desactivada',
     INTENTO_BLOQUEADO:        'intento_bloqueado',
     TRANSFERENCIA_ADMIN:      'transferencia_admin_principal',
 });

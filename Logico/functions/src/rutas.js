@@ -148,7 +148,7 @@ async function iniciarRuta({ rutaId, usuario }) {
         );
         const ruta = rows[0];
         if (!ruta) throw new NotFoundError('Ruta no encontrada.');
-        if (ruta.motorista_id !== usuario.id_usuario && usuario.rol !== 'admin') {
+        if (Number(ruta.motorista_id) !== Number(usuario.id_usuario) && usuario.rol !== 'admin') {
             throw new BusinessRuleError('Solo el motorista asignado puede iniciar la ruta.');
         }
         if (ruta.estado_ruta !== 'asignada') {

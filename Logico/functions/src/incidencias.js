@@ -54,7 +54,7 @@ async function registrarIncidencia({
 
         // Motorista solo puede reportar incidencias de su propia ruta
         if (usuario.rol === 'motorista') {
-            if (!ruta || ruta.motorista_id !== usuario.id_usuario) {
+            if (!ruta || Number(ruta.motorista_id) !== Number(usuario.id_usuario)) {
                 throw new BusinessRuleError(
                     'Solo el motorista asignado puede registrar incidencias de este pedido.'
                 );

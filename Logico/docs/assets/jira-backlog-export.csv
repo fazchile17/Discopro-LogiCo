@@ -1,0 +1,13 @@
+Key,Summary,Sprint,Priority,Assignee,Status,Story Points,Depends On
+LOGICO-1,Crear proyecto Firebase logico-20f73,Sprint 0,Highest,DevOps,Done,1,
+LOGICO-2,Cloud SQL PostgreSQL + usuario logico_app,Sprint 0,Highest,DevOps,Done,1,LOGICO-1
+LOGICO-3,Habilitar Auth Storage Functions,Sprint 0,High,DevOps,Done,1,LOGICO-1
+LOGICO-8,Diseñar MER y 01_schema.sql,Sprint 1,Highest,BE,Done,2,LOGICO-2
+LOGICO-9,Triggers reglas negocio,Sprint 1,Highest,BE,Done,2,LOGICO-8
+LOGICO-15,Implementar crearPedido(),Sprint 2,Highest,BE,Done,2,LOGICO-8
+LOGICO-16,asignarMotorista FOR UPDATE,Sprint 2,Highest,BE,Done,3,LOGICO-15
+LOGICO-22,Frontend pedidos.html,Sprint 3,High,FE,Done,3,LOGICO-15
+LOGICO-23,Vista motorista.html,Sprint 3,High,FE,Done,2,LOGICO-16
+LOGICO-31,Mantenedor farmacias admin,Sprint 4,High,BE,Done,2,LOGICO-8
+LOGICO-32,Mantenedor motos y motoristas,Sprint 4,Medium,FE,Done,2,LOGICO-31
+LOGICO-38,Documentación rúbrica + Sonar,Sprint 5,Highest,QA,Done,3,LOGICO-15

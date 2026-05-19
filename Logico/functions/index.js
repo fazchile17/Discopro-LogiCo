@@ -28,7 +28,9 @@ const farmaciasSvc = require('./src/farmacias');
 const usuariosSvc = require('./src/usuarios');
 const auditoriaSvc = require('./src/auditoria');
 const geografiaSvc = require('./src/geografia');
+const motosSvc = require('./src/motos');
 const { query } = require('./src/db');
+const { ensureUsuariosTableResolved, getTblUsuarios } = require('./src/usuarios-table');
 
 setGlobalOptions({ region: 'us-central1', maxInstances: 10 });
 
@@ -76,10 +78,31 @@ app.use(apiLimiter);
 // ---------------------------------------------------------------------
 // Health check (público)
 // ---------------------------------------------------------------------
+const API_BUILD = '2026-05-19-motorista-id-fix';
+
 app.get('/health', async (_req, res) => {
     try {
-        const { rows } = await query('SELECT NOW() AS now, version()');
-        res.json({ ok: true, now: rows[0].now, db: rows[0].version });
+        await ensureUsuariosTableResolved();
+        const { rows } = await query(
+            'SELECT NOW() AS now, version() AS pg_version, current_database() AS database'
+        );
+        let motosTable = false;
+        try {
+            const { rows: m } = await query(
+                `SELECT 1 FROM information_schema.tables
+                  WHERE table_schema = 'public' AND table_name = 'motos'`
+            );
+            motosTable = m.length > 0;
+        } catch (_) { /* noop */ }
+        res.json({
+            ok: true,
+            build: API_BUILD,
+            usuarios_table: getTblUsuarios(),
+            motos_table: motosTable,
+            now: rows[0].now,
+            database: rows[0].database,
+            pg_version: rows[0].pg_version,
+        });
     } catch (e) {
         res.status(500).json({ ok: false, error: e.message });
     }
@@ -88,15 +111,31 @@ app.get('/health', async (_req, res) => {
 // ---------------------------------------------------------------------
 // Sesión actual
 // ---------------------------------------------------------------------
-app.get('/me', authRequired, (req, res) => {
-    const {
-        id_usuario, firebase_uid, correo, rol, nombre, apellido,
-        es_admin_principal,
-    } = req.user;
-    res.json({
-        id_usuario, firebase_uid, correo, rol, nombre, apellido,
-        es_admin_principal: es_admin_principal === true,
-    });
+app.get('/me', authRequired, async (req, res, next) => {
+    try {
+        await ensureUsuariosTableResolved();
+        const tbl = getTblUsuarios();
+        const { rows } = await query(
+            `SELECT id_usuario, firebase_uid, correo, rol::text AS rol, nombre, apellido,
+                    es_admin_principal
+               FROM ${tbl}
+              WHERE id_usuario = $1`,
+            [req.user.id_usuario]
+        );
+        const u = rows[0];
+        if (!u) {
+            return res.status(403).json({ error: 'Usuario no encontrado en LogiCo.' });
+        }
+        res.json({
+            id_usuario: Number(u.id_usuario),
+            firebase_uid: u.firebase_uid,
+            correo: u.correo,
+            rol: String(u.rol),
+            nombre: u.nombre,
+            apellido: u.apellido,
+            es_admin_principal: u.es_admin_principal === true,
+        });
+    } catch (e) { next(e); }
 });
 
 // Auditoría automática para cualquier endpoint mutador autenticado
@@ -169,7 +208,7 @@ app.get(
 app.put('/motoristas/:id/disponibilidad', async (req, res, next) => {
     try {
         const motoristaId = Number(req.params.id);
-        if (req.user.rol !== 'admin' && req.user.id_usuario !== motoristaId) {
+        if (req.user.rol !== 'admin' && Number(req.user.id_usuario) !== motoristaId) {
             return res.status(403).json({ error: 'Acceso denegado.' });
         }
         const r = await rutasSvc.actualizarDisponibilidad({
@@ -219,10 +258,21 @@ app.post(
 app.get('/motoristas/:id/rutas', async (req, res, next) => {
     try {
         const motoristaId = Number(req.params.id);
-        if (req.user.rol === 'motorista' && req.user.id_usuario !== motoristaId) {
+        if (req.user.rol === 'motorista' && Number(req.user.id_usuario) !== motoristaId) {
             return res.status(403).json({ error: 'Acceso denegado.' });
         }
         res.json(await rutasSvc.listarRutasDeMotorista(motoristaId));
+    } catch (e) { next(e); }
+});
+
+app.get('/motoristas/:id/moto', async (req, res, next) => {
+    try {
+        const motoristaId = Number(req.params.id);
+        if (req.user.rol === 'motorista' && Number(req.user.id_usuario) !== motoristaId) {
+            return res.status(403).json({ error: 'Acceso denegado.' });
+        }
+        const moto = await motosSvc.obtenerMotoPorMotorista(motoristaId);
+        res.json(moto || { asignada: false });
     } catch (e) { next(e); }
 });
 
@@ -491,8 +541,82 @@ app.post(
 );
 
 // =====================================================================
+// MOTOS (mantenedor admin)
+// =====================================================================
+
+app.get('/motos', requireRole('admin'), async (req, res, next) => {
+    try {
+        res.json(await motosSvc.listarMotos({
+            soloActivas: req.query.soloActivas !== 'false',
+        }));
+    } catch (e) { next(e); }
+});
+
+app.get('/motos/:id', requireRole('admin'), async (req, res, next) => {
+    try { res.json(await motosSvc.obtenerMoto(Number(req.params.id))); }
+    catch (e) { next(e); }
+});
+
+app.post('/motos', requireRole('admin'), async (req, res, next) => {
+    try {
+        const m = await motosSvc.crearMoto({
+            payload: req.body, usuario: req.user, req,
+        });
+        res.status(201).json(m);
+    } catch (e) { next(e); }
+});
+
+app.put('/motos/:id', requireRole('admin'), async (req, res, next) => {
+    try {
+        res.json(await motosSvc.actualizarMoto({
+            idMoto: Number(req.params.id),
+            payload: req.body, usuario: req.user, req,
+        }));
+    } catch (e) { next(e); }
+});
+
+app.post('/motos/:id/desactivar', requireRole('admin'), async (req, res, next) => {
+    try {
+        res.json(await motosSvc.desactivarMoto({
+            idMoto: Number(req.params.id), usuario: req.user, req,
+        }));
+    } catch (e) { next(e); }
+});
+
+// =====================================================================
 // USUARIOS (gestión por admins)
 // =====================================================================
+
+app.get(
+    '/usuarios/admin-principal',
+    requireRole('admin'),
+    async (_req, res, next) => {
+        try { res.json(await usuariosSvc.validarAdminPrincipal()); }
+        catch (e) { next(e); }
+    }
+);
+
+app.get(
+    '/usuarios/:id',
+    requireRole('admin'),
+    async (req, res, next) => {
+        try {
+            const id = Number(req.params.id);
+            await ensureUsuariosTableResolved();
+            const tbl = getTblUsuarios();
+            const { rows } = await query(
+                `SELECT id_usuario, nombre, apellido, correo, rol::text AS rol, activo,
+                        firebase_uid, es_admin_principal, fecha_creacion
+                   FROM ${tbl} WHERE id_usuario = $1`,
+                [id]
+            );
+            if (!rows[0]) {
+                return res.status(404).json({ error: 'Usuario no encontrado.' });
+            }
+            res.json(rows[0]);
+        } catch (e) { next(e); }
+    }
+);
 
 app.get(
     '/usuarios',
@@ -561,7 +685,7 @@ app.post(
         try {
             const r = await usuariosSvc.cambiarRolUsuario({
                 idUsuario: req.params.id,
-                nuevoRol: req.body.rol,
+                nuevoRol: req.body?.rol ?? req.body?.nuevoRol,
                 actor: req.user, req,
             });
             res.json(r);
@@ -570,11 +694,12 @@ app.post(
 );
 
 app.get(
-    '/usuarios/admin-principal',
+    '/usuarios/:id/diagnostico-rol',
     requireRole('admin'),
-    async (_req, res, next) => {
-        try { res.json(await usuariosSvc.validarAdminPrincipal()); }
-        catch (e) { next(e); }
+    async (req, res, next) => {
+        try {
+            res.json(await usuariosSvc.diagnosticarUsuarios(req.params.id));
+        } catch (e) { next(e); }
     }
 );
 
@@ -584,4 +709,5 @@ app.get(
 app.use((req, res) => res.status(404).json({ error: 'Endpoint no encontrado.' }));
 app.use(errorHandler);
 
-exports.api = onRequest({ cors: true }, app);
+// Cloud SQL: PG_HOST=/cloudsql/PROYECTO:REGION:INSTANCIA en .env (deploy carga .env)
+exports.api = onRequest({ cors: true, memory: '512MiB' }, app);

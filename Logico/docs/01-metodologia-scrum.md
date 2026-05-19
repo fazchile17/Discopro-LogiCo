@@ -28,10 +28,10 @@ necesidad de validar tempranamente la integración Firebase ↔ PostgreSQL.
 Una historia se considera **DONE** cuando:
 
 1. Código revisado por al menos 1 par (PR aprobado).
-2. Tests unitarios verdes (`npm test`) y cobertura ≥ 80 % en módulos nuevos.
-3. Validación manual desde Postman / UI.
-4. Documentación actualizada (README + carpeta `docs/`).
-5. Despliegue exitoso en emulador Firebase.
+2. Tests unitarios verdes (`npm test` → 38 casos en `functions/tests/`).
+3. Validación de integración/E2E con Postman/Newman o UI (sin suite supertest en repo).
+4. Documentación actualizada (`docs/`), incluyendo limitaciones de seguridad §6.10 si aplica.
+5. Despliegue exitoso en emulador o proyecto Firebase demo.
 
 ---
 
@@ -60,7 +60,7 @@ Una historia se considera **DONE** cuando:
 
 | ID | Tarea | Resp. | Días | Prioridad | Depende de |
 |---|---|---|---|---|---|
-| S1-1 | Diseñar MER (8 tablas + audit + evidencias) | BE | 1 | Alta | S0-2 |
+| S1-1 | Diseñar MER (núcleo 10 tablas + extensiones farmacias/motos) | BE | 1 | Alta | S0-2 |
 | S1-2 | `01_schema.sql` (tablas, FK, índices, vistas) | BE | 1 | Alta | S1-1 |
 | S1-3 | `02_triggers.sql` (sincronía estado, validación rol) | BE | 1 | Alta | S1-2 |
 | S1-4 | `03_seeds.sql` (estados + usuarios demo) | BE | 0.5 | Alta | S1-2 |
@@ -163,7 +163,61 @@ graph TD
 | **Could Have** | Subida de evidencias a Storage, exportación reportes, KPIs avanzados |
 | **Won't Have** (v1) | Notificaciones push, mapas en tiempo real, app nativa, billing |
 
-## 1.7 Riesgos identificados
+## 1.7 Distribución de esfuerzo del equipo
+
+| Rol | Sprint 0 | Sprint 1 | Sprint 2 | Sprint 3 | Sprint 4 | Sprint 5 | **Total h** | **%** |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Dev Backend | 4 | 20 | 28 | 8 | 16 | 8 | **84 h** | 30 % |
+| Dev Frontend | 2 | 4 | 4 | 32 | 16 | 4 | **62 h** | 22 % |
+| DevOps / QA | 12 | 4 | 8 | 4 | 8 | 24 | **60 h** | 21 % |
+| Scrum Master | 4 | 4 | 4 | 4 | 4 | 8 | **28 h** | 10 % |
+| Product Owner | 4 | 4 | 4 | 4 | 4 | 8 | **28 h** | 10 % |
+| Documentación | 0 | 4 | 0 | 0 | 4 | 20 | **28 h** | 7 % |
+| **Total proyecto** | **26** | **40** | **48** | **52** | **52** | **72** | **290 h** | **100 %** |
+
+*Base: 1 día hábil = 8 h; duración total 28 días ≈ 5.8 semanas.*
+
+## 1.8 Carta Gantt
+
+Ver diagrama Mermaid en `docs/assets/gantt-logico.mmd` (renderizable en GitHub / VS Code).
+
+```mermaid
+gantt
+    title LogiCo — 28 días
+    dateFormat YYYY-MM-DD
+    section Infra
+    Sprint 0 Setup     :2026-03-02, 3d
+    section Datos
+    Sprint 1 Modelo BD :2026-03-05, 5d
+    section API
+    Sprint 2 Pedidos   :2026-03-10, 5d
+    section UI
+    Sprint 3 Frontend  :2026-03-17, 5d
+    section Plus
+    Sprint 4 Incidencias :2026-03-24, 5d
+    section Cierre
+    Sprint 5 QA/Docs   :2026-03-31, 5d
+```
+
+## 1.9 Evidencia Jira
+
+Export del backlog, keys de issues y capturas: **`docs/assets/jira-evidencia.md`** y **`docs/assets/jira-backlog-export.csv`**.
+
+## 1.10 Flujo cronológico y matriz de dependencias
+
+| Orden | Hito | Predecesor obligatorio | Prioridad |
+|:---:|---|---|---|
+| 1 | Proyecto Firebase + Cloud SQL | — | Alta |
+| 2 | Esquema SQL + triggers | 1 | Alta |
+| 3 | API pedidos / rutas | 2 | Alta |
+| 4 | Login + UI operadora | 1, 3 | Alta |
+| 5 | UI motorista + asignación | 3, 4 | Alta |
+| 6 | Incidencias + Storage | 5 | Media |
+| 7 | Mantenedores admin (farmacias, motos, motoristas) | 2, 4 | Media |
+| 8 | Pruebas + documentación rúbrica | 3–7 | Alta |
+| 9 | Deploy producción | 8 | Alta |
+
+## 1.11 Riesgos identificados
 
 | Riesgo | Prob | Impacto | Mitigación |
 |---|---|---|---|

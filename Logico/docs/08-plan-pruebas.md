@@ -4,20 +4,36 @@
 
 ```
               /\
-             /  \   E2E (manual + Postman)        ← 14 escenarios
+             /  \   E2E manual (Postman + UI)     ← 14 escenarios §8.4
             /----\
-           /      \  Integración                   ← supertest + Cloud SQL local
+           /      \  Integración manual (Newman)   ← misma colección Postman
           /--------\
-         /          \  Unitarias (Jest + mocks)    ← 30+ casos
+         /          \  Unitarias (Jest + mocks)    ← 38 casos / 6 suites
         /____________\
 ```
 
-| Nivel | Cantidad | Herramienta | Cobertura objetivo |
+| Nivel | Cantidad actual | Herramienta | Notas |
 |---|---|---|---|
-| Unitarias | 30+ | Jest + `fakeDb` | ≥ 80 % en servicios |
-| Integración | 6 | supertest + Cloud SQL local / emulador | Endpoints críticos |
-| E2E manuales | 14 | Postman + UI | Flujos del usuario |
-| Carga / rendimiento | 3 | Artillery / k6 | Asignación concurrente |
+| Unitarias | **38** | Jest + `fakeDb` en `functions/tests/` | Sin BD real; `npm test` |
+| Integración HTTP automatizada | **0** en repo | — | `supertest` está en `package.json` pero **no hay suites**; integración = Postman/Newman manual §8.3 |
+| E2E manuales | **14** | Postman + navegador | Casos §8.4 |
+| Carga / rendimiento | Manual | `curl` paralelo §8.5.3 | Plantilla Artillery §8.5.2 es **referencia opcional** (archivo no versionado) |
+
+### 8.1.1 Ciclo de prueba del flujo pedido → motorista
+
+```mermaid
+flowchart LR
+    T0[Health /me] --> T1[Crear pedido]
+    T1 --> T2[Asignar motorista]
+    T2 --> T3[Motorista inicia ruta]
+    T3 --> T4{Camino feliz?}
+    T4 -- Sí --> T5[Entregar + evidencia]
+    T4 -- No --> T6[Incidencia]
+    T5 --> T7[Assert estado entregado<br/>disponibilidad liberada]
+    T6 --> T8[Assert no_entregado<br/>ruta cancelada]
+```
+
+Cada transición tiene casos en `estados.test.js`, `rutas.test.js` y escenarios Postman §8.4.
 
 ## 8.2 Pruebas unitarias (Jest)
 
@@ -26,9 +42,12 @@ Archivos en `functions/tests/`:
 | Archivo | Casos | Qué prueba |
 |---|---|---|
 | `pedidos.test.js` | 4 | crearPedido feliz / sin campos / fecha inválida / rollback |
-| `rutas.test.js` | 6 | asignarMotorista feliz / regla 1 / regla 2 / sin params / rol inválido / validar disponibilidad |
+| `rutas.test.js` | 8 | asignarMotorista, reglas 1 y 2, validaciones y disponibilidad |
 | `estados.test.js` | 4 | transición válida / inválida / estado desconocido / motorista no asignado |
 | `incidencias.test.js` | 3 | feliz / tipo inválido / descripción vacía |
+| `farmacias.test.js` | 6 | CRUD mantenedor farmacias (mocks) |
+| `usuarios.test.js` | 13 | cambio de rol y validaciones RBAC |
+| **Total** | **38** | 6 suites |
 
 ### Ejecutar
 
@@ -39,35 +58,54 @@ npm test          # ejecuta todos
 npm run test:watch
 ```
 
-### Salida esperada
-
-```
-PASS  tests/pedidos.test.js
-PASS  tests/rutas.test.js
-PASS  tests/estados.test.js
-PASS  tests/incidencias.test.js
-
-Test Suites: 4 passed, 4 total
-Tests:       17 passed, 17 total
-```
-
-## 8.3 Pruebas de integración
-
-Para correrlas con BD real:
+### Salida esperada (reproducible)
 
 ```bash
-# Terminal 1: emulador Firebase
+cd functions && npm test
+```
+
+```
+PASS tests/usuarios.test.js
+PASS tests/rutas.test.js
+PASS tests/estados.test.js
+PASS tests/incidencias.test.js
+PASS tests/farmacias.test.js
+PASS tests/pedidos.test.js
+
+Test Suites: 6 passed, 6 total
+Tests:       38 passed, 38 total
+```
+
+> No hay cobertura Jest configurada en `package.json`. La métrica de cobertura (~84 %) proviene
+> del informe **SonarQube** (ver `07-codificacion-segura.md` §7.10); adjuntar captura o export
+> en la entrega si el evaluador lo exige.
+
+## 8.3 Pruebas de integración y E2E (manuales)
+
+**Estado en el repositorio:** no existen archivos `*.integration.test.js` ni uso de `supertest`
+en `functions/tests/`. La integración se valida con **Postman/Newman** contra BD real o emulador.
+
+### Preparación de base de datos
+
+Ejecutar el checklist completo de [`04-base-datos.md`](04-base-datos.md) §4.11
+(incluye `05`, `06` y `07`, no solo `01`–`04`).
+
+```bash
+# Terminal 1: emulador Firebase (opcional)
 firebase emulators:start
 
-# Terminal 2: Cloud SQL local
+# Terminal 2: PostgreSQL local
 docker run -d --name pg-logico -e POSTGRES_PASSWORD=changeme \
     -e POSTGRES_DB=logico -p 5432:5432 postgres:15
 psql -h 127.0.0.1 -U postgres -d logico -f database/01_schema.sql
 psql -h 127.0.0.1 -U postgres -d logico -f database/02_triggers.sql
 psql -h 127.0.0.1 -U postgres -d logico -f database/03_seeds.sql
 psql -h 127.0.0.1 -U postgres -d logico -f database/04_audit_storage.sql
+psql -h 127.0.0.1 -U postgres -d logico -f database/05_admin_farmacias.sql
+psql -h 127.0.0.1 -U postgres -d logico -f database/06_geografia_chile.sql
+psql -h 127.0.0.1 -U postgres -d logico -f database/07_motos.sql
 
-# Terminal 3: corre Postman collection con Newman
+# Terminal 3: Newman (colección versionada)
 newman run postman/LogiCo.postman_collection.json \
     --env-var "idToken=<TOKEN_OBTENIDO_DE_LOGIN>"
 ```
@@ -104,9 +142,11 @@ newman run postman/LogiCo.postman_collection.json \
 | POST `/pedidos` | < 200 ms |
 | POST `/rutas/asignar` (con FOR UPDATE) | < 250 ms |
 
-### 8.5.2 Smoke test con Artillery
+### 8.5.2 Smoke test con Artillery (plantilla opcional)
 
-`tests/perf/smoke.yml`:
+No hay archivo `tests/perf/smoke.yml` versionado en el repositorio. Para una corrida local,
+crear el YAML con el contenido siguiente y ejecutar `artillery run smoke.yml` tras obtener
+`ID_TOKEN` de un login real:
 
 ```yaml
 config:
@@ -118,15 +158,11 @@ config:
     headers:
       Authorization: 'Bearer {{ $processEnvironment.ID_TOKEN }}'
 scenarios:
-  - name: "listar pedidos"
+  - name: listar pedidos
     flow:
       - get: { url: "/pedidos" }
       - think: 1
       - get: { url: "/me" }
-```
-
-```bash
-artillery run tests/perf/smoke.yml
 ```
 
 ### 8.5.3 Test de concurrencia (regla 1)
@@ -144,21 +180,43 @@ seq 1 20 | xargs -n1 -P20 -I{} curl -X POST \
 **Resultado esperado**: solo **1 request** retorna 201; los otros 19 retornan 409.
 Se valida así que `SELECT FOR UPDATE` + índice único parcial funcionan bajo carga.
 
-## 8.6 Resultados (corrida del 28-Abr-2026)
+## 8.6 Resultados de referencia
 
-| Métrica | Resultado |
-|---|---|
-| Tests unitarios | 17 / 17 ✅ |
-| Tests Postman | 14 / 14 ✅ |
-| Cobertura servicios | 84 % |
-| p95 GET /pedidos | 112 ms |
-| p95 POST /rutas/asignar | 198 ms |
-| Concurrencia 20× asignar mismo motorista | 1 OK + 19 rechazos limpios ✅ |
-| Vulnerabilidades npm audit (high) | 0 |
+| Métrica | Valor documentado | Cómo reproducir |
+|---|---|---|
+| Tests unitarios Jest | **38 / 38** | `cd functions && npm test` |
+| Tests Postman / E2E | **14 escenarios** §8.4 | Newman + tokens por rol |
+| Cobertura de código | ~84 % (SonarQube) | `sonar-scanner` + evidencia exportada §7.10 |
+| p95 GET `/pedidos` | ~112 ms (entorno demo) | Medición manual o Artillery §8.5.2 |
+| p95 POST `/rutas/asignar` | ~198 ms (entorno demo) | Idem |
+| Concurrencia 20× misma asignación | 1× 201 + 19× 409 | Script §8.5.3 |
+| `npm audit` (high) | 0 en última corrida documentada | `cd functions && npm audit` |
 
-## 8.7 Checklist de regresión antes de cada deploy
+> Las cifras de latencia corresponden a un entorno de demostración (Cloud Functions + Cloud SQL
+> trial) y **no** constituyen SLA contractual.
 
-- [ ] `npm test` verde en `/functions`
+### Caja negra (pedidos / motorista)
+
+| ID | Caso | Esperado | Obtenido |
+|---|---|---|---|
+| CN-03 | Asignar motorista ocupado | 409 | 409 ✅ |
+| CN-04 | Entregar sin iniciar ruta | 422 | 422 ✅ |
+| CN-06 | Motorista sin token | 401 | 401 ✅ |
+| NAV | Motorista solo ve Mis rutas | Sin crear pedido | Redirect ✅ |
+
+## 8.7 Huecos de prueba conocidos (MVP)
+
+| Área | Cobertura actual | Riesgo |
+|---|---|---|
+| `motos.js` / HTTP motos | Sin tests Jest dedicados | Regresión en mantenedor flota |
+| `evidencias.js` | Sin tests unitarios | Metadatos Storage |
+| Autorización `GET /pedidos/:id` | Solo E2E manual | Ver §6.10 seguridad |
+| Integración supertest | No implementada | Dependencia de Newman |
+
+## 8.8 Checklist de regresión antes de cada deploy
+
+- [ ] `npm test` → **38/38** en `/functions`
+- [ ] Scripts SQL §4.11 aplicados en BD destino (`\c logico`)
 - [ ] Newman corre la colección sin fallos
 - [ ] `firebase deploy --only functions:api --dry-run` exitoso
 - [ ] Variables `.env` actualizadas en GCP Secret Manager
