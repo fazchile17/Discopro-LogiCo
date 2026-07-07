@@ -11,7 +11,7 @@ Sistema completo de gestión de pedidos, rutas, motoristas e incidencias constru
 > No se utiliza Firestore como base principal. Toda la lógica de negocio se ejecuta
 > en Firebase Functions con transacciones SQL reales (`BEGIN/COMMIT`).
 
-**Sitio web:** [https://logico-20f73.web.app/index.html](https://logico-20f73.web.app/index.html)
+**Sitio web:** [https://logico-20f73.web.app/index.html](https://logico-app.web.app)
 
 Proyecto Firebase: `logico-20f73`
 
