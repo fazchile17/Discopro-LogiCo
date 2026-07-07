@@ -9,13 +9,13 @@
  */
 window.LOGICO_CONFIG = {
     firebase: {
-        apiKey: 'AIzaSyDoahWc13pyo240AS4mimJeNgm5T13CHIc',
-        authDomain: 'logico-20f73.firebaseapp.com',
-        projectId: 'logico-20f73',
-        storageBucket: 'logico-20f73.firebasestorage.app',
-        messagingSenderId: '138470559938',
-        appId: '1:138470559938:web:63dd55abe44346277aab5b',
-        measurementId: 'G-JTFDW5DZ4P',
+        apiKey: 'AIzaSyATLiBvaQVf_Tab4nU41YPljzHmAwCBMb8',
+        authDomain: 'logico-app.firebaseapp.com',
+        projectId: 'logico-app',
+        storageBucket: 'logico-app.firebasestorage.app',
+        messagingSenderId: '25952999861',
+        appId: '1:25952999861:web:d18b6fa515be0a7b86e1fc',
+        measurementId: 'G-FJJELTK4M6',
     },
     apiBase: '/api',
 };

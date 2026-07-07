@@ -262,10 +262,10 @@ Salida JSON:
 |---|---|---|---|
 | `POST /pedidos` | operadora, admin | trigger BD rol | ✅ |
 | `GET /pedidos` | auth | filtro si motorista | ✅ listado |
-| `GET /pedidos/:id` | auth | **ninguna** por rol/asignación | ⚠ L-01 §6.10 |
+| `GET /pedidos/:id` | auth | `puedeAccederPedido()` (motorista solo asignados) | ✅ C-01 §6.10 |
 | `POST /pedidos/:id/entregar` | motorista, admin | motorista asignado | ✅ |
 | `POST /pedidos/:id/incidencias` | auth | motorista solo ruta propia | ✅ motorista; operadora libre |
-| `POST /pedidos/:id/evidencias` | auth | solo existe pedido | ⚠ L-03 §6.10 |
+| `POST/GET /pedidos/:id/evidencias` | auth | `puedeAccederPedido()` + existe pedido | ✅ C-03 §6.10 |
 | `GET /motoristas/:id/rutas` | auth | motorista = `:id` | ✅ |
 | CRUD `/motos`, mutaciones `/farmacias` | admin | servicios admin | ✅ |
 

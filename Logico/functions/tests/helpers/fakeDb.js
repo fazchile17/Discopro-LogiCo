@@ -35,6 +35,12 @@ function createFakeDb() {
             queries.push({ sql: sql.replace(/\s+/g, ' ').trim(), params });
             if (/^BEGIN/i.test(sql.trim())) { beginCount++; return { rows: [] }; }
             if (/^COMMIT/i.test(sql.trim())) { commitCount++; return { rows: [] }; }
+            // SAVEPOINT / RELEASE / ROLLBACK TO SAVEPOINT son control de
+            // sub-transacción (auditoría aislada): no consumen la cola de
+            // respuestas ni cuentan como rollback de la transacción de negocio.
+            if (/^SAVEPOINT/i.test(sql.trim())) { return { rows: [] }; }
+            if (/^RELEASE\s+SAVEPOINT/i.test(sql.trim())) { return { rows: [] }; }
+            if (/^ROLLBACK\s+TO\s+SAVEPOINT/i.test(sql.trim())) { return { rows: [] }; }
             if (/^ROLLBACK/i.test(sql.trim())) { rollbackCount++; return { rows: [] }; }
             const r = responses.shift();
             if (r instanceof Error) throw r;

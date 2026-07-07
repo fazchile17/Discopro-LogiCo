@@ -14,10 +14,13 @@ param(
     [string]$Target = "all"
 )
 
-$Project = "logico-20f73"
+# Firebase/Cloud Run/Hosting/Auth viven en este proyecto:
+$Project = "logico-app"
 $Region = "us-central1"
+# Cloud SQL vive en OTRO proyecto (cross-project):
+$SqlProject = "logico-498613"
 $SqlInstance = "free-trial-first-project"
-$ConnectionName = "${Project}:${Region}:${SqlInstance}"
+$ConnectionName = "${SqlProject}:${Region}:${SqlInstance}"
 
 function Find-Gcloud {
     # 1) Si está en PATH, devolverlo tal cual.
@@ -96,4 +99,4 @@ switch ($Target) {
 
 Write-Host "`n=== Deploy completado ===" -ForegroundColor Green
 Write-Host "Smoke test:" -ForegroundColor Yellow
-Write-Host "  curl https://logico-20f73.web.app/api/health" -ForegroundColor Yellow
+Write-Host "  curl https://logico-app.web.app/api/health" -ForegroundColor Yellow

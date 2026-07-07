@@ -179,7 +179,8 @@ graph TD
 
 ## 1.8 Carta Gantt
 
-Ver diagrama Mermaid en `docs/assets/gantt-logico.mmd` (renderizable en GitHub / VS Code).
+Ver diagrama en `docs/assets/gantt-logico.mmd` (flowchart, preview en VS Code/Cursor) y
+`docs/assets/gantt-logico.md` (Gantt clásico para GitHub).
 
 ```mermaid
 gantt

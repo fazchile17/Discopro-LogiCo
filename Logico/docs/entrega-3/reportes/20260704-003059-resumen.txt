@@ -1,0 +1,29 @@
+[00:30:59] === LogiCo - Plan de pruebas Entrega 3 ===
+[00:30:59] Proyecto: C:\Users\Bruno\Documents\CLASES\Proyecto integrado final\Logico
+[00:30:59] API: https://logico-app.web.app/api
+[00:30:59] Reportes: C:\Users\Bruno\Documents\CLASES\Proyecto integrado final\Logico\docs\entrega-3\reportes
+[00:30:59] 
+[00:30:59] --- T1 Unitarias (Jest) ---
+[00:31:03]   [PASS] T1 - Jest unitarias (38 esperados) (38 passed)
+[00:31:03] --- T4 Seguridad (smoke HTTP) ---
+[00:31:06]   [PASS] T4/RNF - GET /health -> 200 ok (database=logico 2517ms)
+[00:31:07]   [PASS] T5/RNF - Latencia health (promedio 3) (1038ms)
+[00:31:07]   [PASS] T4 - GET /pedidos sin token -> 401 (HTTP 401)
+[00:31:07] --- T2/T3/T4 Newman (Integración + Borde + Seguridad) ---
+[00:31:07]   Preparando entorno E2E (liberar motorista)...
+[00:31:09]   E2E listo: motoristaId=3 run=1783139467472
+[00:31:25]   [PASS] T2/T3/T4 - Newman coleccion completa (exit=0)
+[00:31:25] --- T5 Concurrencia ---
+[00:31:28]   [PASS] T5 - Concurrencia 1x201 + resto conflicto (exit=0)
+[00:31:28] 
+[00:31:28] === RESUMEN ===
+[00:31:28]   [PASS] T1 - Jest unitarias (38 esperados)
+[00:31:28]   [PASS] T4/RNF - GET /health -> 200 ok
+[00:31:28]   [PASS] T5/RNF - Latencia health (promedio 3)
+[00:31:28]   [PASS] T4 - GET /pedidos sin token -> 401
+[00:31:28]   [PASS] T2/T3/T4 - Newman coleccion completa
+[00:31:28]   [PASS] T5 - Concurrencia 1x201 + resto conflicto
+[00:31:28] 
+[00:31:28] Total: 6 PASS / 0 FAIL (de 6 pruebas de plan)
+[00:31:28] Resumen guardado: C:\Users\Bruno\Documents\CLASES\Proyecto integrado final\Logico\docs\entrega-3\reportes\20260704-003059-resumen.txt
+[00:31:28] Tabla Markdown: C:\Users\Bruno\Documents\CLASES\Proyecto integrado final\Logico\docs\entrega-3\reportes\20260704-003059-tabla-resultados.md

@@ -36,9 +36,37 @@ setGlobalOptions({ region: 'us-central1', maxInstances: 10 });
 
 const app = express();
 
+// Detrás de Firebase Hosting → Cloud Run hay un proxy delante. Confiar en 1
+// salto permite que req.ip refleje la IP real del cliente y evita el
+// ValidationError de express-rate-limit por el header X-Forwarded-For.
+app.set('trust proxy', 1);
+
 // ------------------- Middlewares de seguridad -------------------
 app.use(helmet({ contentSecurityPolicy: false }));   // Cabeceras seguras
-app.use(cors({ origin: true }));                     // Hosting + dominios autorizados
+
+// CORS con lista blanca (OWASP A05). Orígenes permitidos: dominios de Hosting
+// del proyecto + localhost para desarrollo. Se puede ampliar vía CORS_ORIGINS
+// (separados por coma) sin tocar código.
+const DEFAULT_ORIGINS = [
+    'https://logico-app.web.app',
+    'https://logico-app.firebaseapp.com',
+    'http://localhost:5000',
+    'http://localhost:5002',
+    'http://127.0.0.1:5000',
+];
+const ALLOWED_ORIGINS = new Set(
+    (process.env.CORS_ORIGINS
+        ? process.env.CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
+        : DEFAULT_ORIGINS)
+);
+app.use(cors({
+    origin(origin, callback) {
+        // Permite herramientas sin Origin (curl, Postman, health checks server-to-server).
+        if (!origin || ALLOWED_ORIGINS.has(origin)) return callback(null, true);
+        return callback(new Error('Origen no permitido por CORS.'));
+    },
+    credentials: false,
+}));
 app.use(express.json({ limit: '256kb' }));           // anti-payload-bomb
 
 // Las respuestas de la API NUNCA deben cachearse. Sin esto, el CDN de
@@ -141,6 +169,18 @@ app.get('/me', authRequired, async (req, res, next) => {
 // Auditoría automática para cualquier endpoint mutador autenticado
 app.use(authRequired, auditMiddleware);
 
+/**
+ * Control de acceso a nivel de objeto (OWASP API1 / IDOR):
+ * un motorista solo puede acceder a un pedido si tiene (o tuvo) una ruta
+ * sobre ese pedido. operadora y admin no tienen esta restricción.
+ * Devuelve true si el acceso está permitido.
+ */
+async function puedeAccederPedido(usuario, pedidoId) {
+    if (usuario.rol !== 'motorista') return true;
+    const rutas = await rutasSvc.listarRutasDeMotorista(Number(usuario.id_usuario));
+    return rutas.some((r) => Number(r.pedido_id) === Number(pedidoId));
+}
+
 // =====================================================================
 // PEDIDOS
 // =====================================================================
@@ -179,7 +219,11 @@ app.get('/pedidos', async (req, res, next) => {
 
 app.get('/pedidos/:id', async (req, res, next) => {
     try {
-        res.json(await pedidosSvc.obtenerPedido(Number(req.params.id)));
+        const pedidoId = Number(req.params.id);
+        if (!(await puedeAccederPedido(req.user, pedidoId))) {
+            return res.status(403).json({ error: 'Acceso denegado a este pedido.' });
+        }
+        res.json(await pedidosSvc.obtenerPedido(pedidoId));
     } catch (e) { next(e); }
 });
 
@@ -343,7 +387,11 @@ app.post('/pedidos/:id/incidencias', async (req, res, next) => {
 
 app.get('/pedidos/:id/incidencias', async (req, res, next) => {
     try {
-        res.json(await incidenciasSvc.listarIncidenciasPedido(Number(req.params.id)));
+        const pedidoId = Number(req.params.id);
+        if (!(await puedeAccederPedido(req.user, pedidoId))) {
+            return res.status(403).json({ error: 'Acceso denegado a este pedido.' });
+        }
+        res.json(await incidenciasSvc.listarIncidenciasPedido(pedidoId));
     } catch (e) { next(e); }
 });
 
@@ -376,6 +424,10 @@ app.post(
 // =====================================================================
 app.post('/pedidos/:id/evidencias', async (req, res, next) => {
     try {
+        const pedidoId = Number(req.params.id);
+        if (!(await puedeAccederPedido(req.user, pedidoId))) {
+            return res.status(403).json({ error: 'Acceso denegado a este pedido.' });
+        }
         const e = await evidenciasSvc.registrarEvidencia({
             pedidoId: Number(req.params.id),
             incidenciaId: req.body.incidenciaId || null,
@@ -397,7 +449,11 @@ app.post('/pedidos/:id/evidencias', async (req, res, next) => {
 
 app.get('/pedidos/:id/evidencias', async (req, res, next) => {
     try {
-        res.json(await evidenciasSvc.listarEvidencias(Number(req.params.id)));
+        const pedidoId = Number(req.params.id);
+        if (!(await puedeAccederPedido(req.user, pedidoId))) {
+            return res.status(403).json({ error: 'Acceso denegado a este pedido.' });
+        }
+        res.json(await evidenciasSvc.listarEvidencias(pedidoId));
     } catch (e) { next(e); }
 });
 

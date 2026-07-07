@@ -190,14 +190,14 @@ controlados se usa `textContent` siempre que sea posible.
 
 | # | Amenaza | Estado |
 |---|---|---|
-| API1 | Broken Object Level Authorization | ⚠ Parcial — ver [`06-seguridad.md`](06-seguridad.md) §6.10–§6.11 |
+| API1 | Broken Object Level Authorization | ✅ `puedeAccederPedido()` (pedido/evidencias/incidencias); riesgo residual Storage §6.10 |
 | API2 | Broken Authentication | ✅ Firebase Auth + verifyIdToken |
 | API3 | Broken Object Property Level Auth | ✅ sin campos internos extra en respuestas estándar |
 | API4 | Unrestricted Resource Consumption | ✅ rate-limit + body limit 256 KB |
 | API5 | Broken Function Level Authorization | ✅ `requireRole` en mutaciones admin y pedidos |
 | API6 | Unrestricted Access to Sensitive Business Flows | ✅ índices únicos + bloqueos FOR UPDATE |
 | API7 | Server Side Request Forgery | N/A (sin URLs externas dinámicas) |
-| API8 | Security Misconfiguration | ⚠ helmet OK; CORS permisivo y `/health` público (§6.10) |
+| API8 | Security Misconfiguration | ✅ helmet + CORS allowlist + errores sin detalles en prod; `/health` público (L-07 §6.10) |
 | API9 | Improper Inventory Management | ✅ docs/ + Postman + `/health` |
 | API10 | Unsafe Consumption of APIs | N/A (sin integraciones de terceros mutables) |
 

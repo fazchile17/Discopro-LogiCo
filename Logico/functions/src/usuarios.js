@@ -141,6 +141,7 @@ async function obtenerUsuarioPlano(client, idUsuario) {
     return rows[0] || null;
 }
 
+
 /**
  * Aplica las reglas de jerarquía. Lanza error si la acción está prohibida.
  *

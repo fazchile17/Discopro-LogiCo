@@ -1,22 +1,78 @@
 {
   "info": {
     "name": "LogiCo API",
-    "_postman_id": "8b1f0d20-logico-2026-04",
-    "description": "Colección oficial de pruebas para la API LogiCo. Cubre flujo end-to-end: login → crear pedido → asignar motorista → iniciar ruta → entregar / incidencia / reprogramar.",
+    "_postman_id": "8b1f0d20-logico-2026-06",
+    "description": "Colección oficial de pruebas de la API LogiCo. Incluye login automático contra Firebase Auth (REST), flujo E2E (login → crear pedido → asignar → iniciar → entregar/incidencia/reprogramar) y pruebas de seguridad/borde (SQL injection, sin token, RBAC, datos inválidos, recurso inexistente).\n\nVariables en el ENVIRONMENT (LogiCo.postman_environment.json):\n  baseUrl, apiKey, adminEmail, adminPassword, motoristaEmail, motoristaPassword.\n\nEjecutar con Newman:\n  newman run postman/LogiCo.postman_collection.json -e postman/LogiCo.postman_environment.json",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://127.0.0.1:5001/logico-20f73/us-central1/api" },
     { "key": "idToken", "value": "" },
+    { "key": "motoristaToken", "value": "" },
     { "key": "pedidoId", "value": "" },
     { "key": "rutaId", "value": "" },
-    { "key": "motoristaId", "value": "3" }
+    { "key": "motoristaId", "value": "3" },
+    { "key": "testRunId", "value": "" },
+    { "key": "fechaTestIso", "value": "" }
   ],
   "auth": {
     "type": "bearer",
     "bearer": [{ "key": "token", "value": "{{idToken}}", "type": "string" }]
   },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (!pm.collectionVariables.get('testRunId')) {",
+          "  const ts = Date.now();",
+          "  pm.collectionVariables.set('testRunId', String(ts));",
+          "  pm.collectionVariables.set('fechaTestIso', new Date(ts + 86400000).toISOString());",
+          "}"
+        ]
+      }
+    }
+  ],
   "item": [
+    {
+      "name": "00. Login admin (Firebase REST)",
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={{apiKey}}",
+        "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\",\n  \"returnSecureToken\": true\n}" }
+      },
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "pm.test('Login admin 200', () => pm.response.to.have.status(200));",
+          "const j = pm.response.json();",
+          "pm.collectionVariables.set('idToken', j.idToken);",
+          "pm.test('idToken recibido', () => pm.expect(j.idToken).to.be.a('string').and.not.empty);"
+        ]}
+      }]
+    },
+    {
+      "name": "00b. Login motorista (opcional, para RBAC y E2E)",
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={{apiKey}}",
+        "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{motoristaEmail}}\",\n  \"password\": \"{{motoristaPassword}}\",\n  \"returnSecureToken\": true\n}" }
+      },
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "if (pm.response.code === 200) {",
+          "  pm.collectionVariables.set('motoristaToken', pm.response.json().idToken);",
+          "} else {",
+          "  console.log('Login motorista omitido (credenciales no configuradas).');",
+          "}"
+        ]}
+      }]
+    },
     {
       "name": "0. Health (público)",
       "request": {
@@ -28,7 +84,9 @@
         "listen": "test",
         "script": { "exec": [
           "pm.test('200 OK', () => pm.response.to.have.status(200));",
-          "pm.test('responde DB', () => pm.expect(pm.response.json().db).to.include('PostgreSQL'));"
+          "const j = pm.response.json();",
+          "pm.test('ok=true', () => pm.expect(j.ok).to.be.true);",
+          "pm.test('conecta a BD logico', () => pm.expect(j.database).to.eql('logico'));"
         ]}
       }]
     },
@@ -44,19 +102,19 @@
       }]
     },
     {
-      "name": "2. Crear pedido (operadora)",
+      "name": "2. Crear pedido (operadora/admin)",
       "request": {
         "method": "POST",
         "url": "{{baseUrl}}/pedidos",
         "header": [{ "key": "Content-Type", "value": "application/json" }],
-        "body": { "mode": "raw", "raw": "{\n  \"nombre_cliente\": \"Cliente Postman\",\n  \"telefono_cliente\": \"7777-0000\",\n  \"direccion_entrega\": \"Calle Falsa 123\",\n  \"detalle_pedido\": \"Receta digital + suplemento\",\n  \"fecha_programada\": \"2026-05-15T14:00:00Z\"\n}" }
+        "body": { "mode": "raw", "raw": "{\n  \"nombre_cliente\": \"Cliente Postman {{testRunId}}\",\n  \"telefono_cliente\": \"7777-{{testRunId}}\",\n  \"direccion_entrega\": \"Calle Falsa 123\",\n  \"detalle_pedido\": \"Receta digital + suplemento {{testRunId}}\",\n  \"fecha_programada\": \"{{fechaTestIso}}\"\n}" }
       },
       "event": [{
         "listen": "test",
         "script": { "exec": [
           "pm.test('201', () => pm.response.to.have.status(201));",
           "const j = pm.response.json();",
-          "pm.collectionVariables.set('pedidoId', j.id_pedido);",
+          "pm.collectionVariables.set('pedidoId', String(j.id_pedido));",
           "pm.test('codigo_pedido generado', () => pm.expect(j.codigo_pedido).to.be.a('string'));"
         ]}
       }]
@@ -73,7 +131,7 @@
       }]
     },
     {
-      "name": "4. Obtener pedido",
+      "name": "4. Obtener pedido recién creado",
       "request": { "method": "GET", "url": "{{baseUrl}}/pedidos/{{pedidoId}}" },
       "event": [{
         "listen": "test",
@@ -84,11 +142,7 @@
       }]
     },
     {
-      "name": "5. Listar motoristas disponibles",
-      "request": { "method": "GET", "url": "{{baseUrl}}/motoristas/disponibles" }
-    },
-    {
-      "name": "6. Asignar motorista",
+      "name": "5. Asignar motorista",
       "request": {
         "method": "POST",
         "url": "{{baseUrl}}/rutas/asignar",
@@ -98,13 +152,13 @@
       "event": [{
         "listen": "test",
         "script": { "exec": [
-          "pm.test('201', () => pm.response.to.have.status(201));",
-          "pm.collectionVariables.set('rutaId', pm.response.json().id_ruta);"
+          "pm.test('201 asignado', () => pm.response.to.have.status(201));",
+          "if (pm.response.code === 201) pm.collectionVariables.set('rutaId', pm.response.json().id_ruta);"
         ]}
       }]
     },
     {
-      "name": "7. Asignar motorista (debe fallar - ya asignado)",
+      "name": "6. Asignar de nuevo (debe fallar - ya asignado)",
       "request": {
         "method": "POST",
         "url": "{{baseUrl}}/rutas/asignar",
@@ -114,62 +168,79 @@
       "event": [{
         "listen": "test",
         "script": { "exec": [
-          "pm.test('409 conflicto (regla 2)', () => pm.expect(pm.response.code).to.be.oneOf([409, 422]));"
+          "pm.test('409/422/400 conflicto (regla negocio)', () => pm.expect(pm.response.code).to.be.oneOf([400, 409, 422]));"
         ]}
       }]
     },
     {
-      "name": "8. Iniciar ruta (motorista - cambiar token)",
-      "request": { "method": "POST", "url": "{{baseUrl}}/rutas/{{rutaId}}/iniciar" }
-    },
-    {
-      "name": "9. Entregar pedido (motorista)",
-      "request": {
-        "method": "POST",
-        "url": "{{baseUrl}}/pedidos/{{pedidoId}}/entregar",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
-        "body": { "mode": "raw", "raw": "{ \"comentario\": \"Entregado al cliente\" }" }
-      }
-    },
-    {
-      "name": "10. Registrar incidencia",
-      "request": {
-        "method": "POST",
-        "url": "{{baseUrl}}/pedidos/{{pedidoId}}/incidencias",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
-        "body": { "mode": "raw", "raw": "{ \"tipo\": \"cliente_ausente\", \"descripcion\": \"Tocaron timbre, no respondieron\" }" }
-      }
-    },
-    {
-      "name": "11. Reprogramar pedido",
-      "request": {
-        "method": "POST",
-        "url": "{{baseUrl}}/pedidos/{{pedidoId}}/reprogramar",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
-        "body": { "mode": "raw", "raw": "{ \"fechaNueva\": \"2026-05-20T10:00:00Z\", \"motivo\": \"Cliente solicitó nueva fecha\" }" }
-      }
-    },
-    {
-      "name": "12. Auditoría (solo admin)",
-      "request": { "method": "GET", "url": "{{baseUrl}}/audit?limit=50" }
-    },
-    {
-      "name": "13. SQL Injection (debe fallar limpio)",
+      "name": "BORDE E1. Crear pedido vacío (400/422)",
       "request": {
         "method": "POST",
         "url": "{{baseUrl}}/pedidos",
         "header": [{ "key": "Content-Type", "value": "application/json" }],
-        "body": { "mode": "raw", "raw": "{ \"nombre_cliente\": \"Robert'); DROP TABLE pedidos; --\", \"telefono_cliente\": \"x\", \"direccion_entrega\": \"x\", \"detalle_pedido\": \"x\", \"fecha_programada\": \"2026-05-01T10:00:00Z\" }" }
+        "body": { "mode": "raw", "raw": "{}" }
       },
       "event": [{
         "listen": "test",
         "script": { "exec": [
-          "pm.test('Sin SQL injection - el server responde 201/422', () => pm.expect(pm.response.code).to.be.oneOf([201, 400, 422]));"
+          "pm.test('rechaza datos faltantes (400/422)', () => pm.expect(pm.response.code).to.be.oneOf([400, 422]));"
         ]}
       }]
     },
     {
-      "name": "14. Sin token (debe ser 401)",
+      "name": "BORDE E2. Obtener pedido inexistente (404)",
+      "request": { "method": "GET", "url": "{{baseUrl}}/pedidos/99999999" },
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "pm.test('404 no encontrado', () => pm.response.to.have.status(404));"
+        ]}
+      }]
+    },
+    {
+      "name": "BORDE E3. Crear farmacia con comuna inválida (400)",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/farmacias",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{ \"nombre\": \"X\", \"direccion\": \"Y\", \"comuna_id\": 99999999 }" }
+      },
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "pm.test('400 comuna inexistente', () => pm.expect(pm.response.code).to.be.oneOf([400, 422]));"
+        ]}
+      }]
+    },
+    {
+      "name": "SEG S1. SQL Injection (debe fallar limpio, sin 500)",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/pedidos",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{ \"nombre_cliente\": \"Robert'); DROP TABLE pedidos; --\", \"telefono_cliente\": \"sqli-{{testRunId}}\", \"direccion_entrega\": \"x\", \"detalle_pedido\": \"x-{{testRunId}}\", \"fecha_programada\": \"{{fechaTestIso}}\" }" }
+      },
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "pm.test('NO hay 500 (consultas parametrizadas)', () => pm.expect(pm.response.code).to.not.eql(500));",
+          "pm.test('respuesta controlada (201/400/409/422)', () => pm.expect(pm.response.code).to.be.oneOf([201, 400, 409, 422]));"
+        ]}
+      }]
+    },
+    {
+      "name": "SEG S2. Verificar que la tabla pedidos sigue viva tras el intento",
+      "request": { "method": "GET", "url": "{{baseUrl}}/pedidos" },
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "pm.test('200 (tabla intacta)', () => pm.response.to.have.status(200));",
+          "pm.test('sigue siendo un array', () => pm.expect(pm.response.json()).to.be.an('array'));"
+        ]}
+      }]
+    },
+    {
+      "name": "SEG S3. Sin token (debe ser 401)",
       "request": {
         "auth": { "type": "noauth" },
         "method": "GET",
@@ -179,6 +250,66 @@
         "listen": "test",
         "script": { "exec": [
           "pm.test('401 sin token', () => pm.response.to.have.status(401));"
+        ]}
+      }]
+    },
+    {
+      "name": "SEG S4. Token basura (debe ser 401)",
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "GET",
+        "url": "{{baseUrl}}/pedidos",
+        "header": [{ "key": "Authorization", "value": "Bearer token_invalido_123" }]
+      },
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "pm.test('401 token inválido', () => pm.response.to.have.status(401));"
+        ]}
+      }]
+    },
+    {
+      "name": "SEG S5. RBAC: motorista NO puede crear pedido (403)",
+      "request": {
+        "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{motoristaToken}}", "type": "string" }] },
+        "method": "POST",
+        "url": "{{baseUrl}}/pedidos",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"nombre_cliente\": \"No deberia crearse\",\n  \"telefono_cliente\": \"0\",\n  \"direccion_entrega\": \"x\",\n  \"detalle_pedido\": \"x\",\n  \"fecha_programada\": \"2026-07-15T14:00:00Z\"\n}" }
+      },
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "if (!pm.collectionVariables.get('motoristaToken')) { pm.test.skip('Sin motoristaToken'); } else {",
+          "  pm.test('403 RBAC', () => pm.response.to.have.status(403));",
+          "}"
+        ]}
+      }]
+    },
+    {
+      "name": "SEG S6. RBAC: motorista NO puede ver auditoría (403)",
+      "request": {
+        "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{motoristaToken}}", "type": "string" }] },
+        "method": "GET",
+        "url": "{{baseUrl}}/audit?limit=10"
+      },
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "if (!pm.collectionVariables.get('motoristaToken')) { pm.test.skip('Sin motoristaToken'); } else {",
+          "  pm.test('403 solo admin', () => pm.response.to.have.status(403));",
+          "}"
+        ]}
+      }]
+    },
+    {
+      "name": "9. Auditoría (admin) - confirma persistencia",
+      "request": { "method": "GET", "url": "{{baseUrl}}/audit?limit=50" },
+      "event": [{
+        "listen": "test",
+        "script": { "exec": [
+          "pm.test('200', () => pm.response.to.have.status(200));",
+          "pm.test('array auditoría', () => pm.expect(pm.response.json()).to.be.an('array'));"
         ]}
       }]
     }

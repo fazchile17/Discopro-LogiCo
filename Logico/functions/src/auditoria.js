@@ -39,6 +39,30 @@ const ACCIONES = Object.freeze({
  * @param {boolean} [args.exito=true] - false si fue un intento bloqueado.
  * @param {object} [args.req] - Request HTTP (para extraer IP).
  */
+/**
+ * Extrae una IP válida para la columna `inet`.
+ * Detrás de Firebase Hosting → Cloud Run, `x-forwarded-for` llega como una
+ * lista separada por comas ("ip_cliente, ip_proxy1, ..."). Insertar la cadena
+ * completa en una columna `inet` revienta la query. Tomamos solo la primera
+ * (el cliente original) y normalizamos el formato IPv6-mapeado.
+ * @returns {string|null} Una sola IP, o null si no hay nada usable.
+ */
+function extraerIp(req) {
+    if (!req) return null;
+    const xff = req.headers ? req.headers['x-forwarded-for'] : null;
+    let candidato = null;
+    if (xff) {
+        candidato = Array.isArray(xff) ? xff[0] : String(xff).split(',')[0];
+    } else if (req.ip) {
+        candidato = req.ip;
+    }
+    if (!candidato) return null;
+    candidato = String(candidato).trim();
+    // "::ffff:1.2.3.4" → "1.2.3.4" (IPv4 mapeado a IPv6)
+    if (candidato.startsWith('::ffff:')) candidato = candidato.slice(7);
+    return candidato || null;
+}
+
 async function registrarAuditoria({
     client,
     usuario = null,
@@ -49,9 +73,7 @@ async function registrarAuditoria({
     exito = true,
     req = null,
 }) {
-    const ip = req
-        ? (req.headers['x-forwarded-for'] || req.ip || null)
-        : null;
+    const ip = extraerIp(req);
 
     const detalleStr = detalle == null
         ? null
@@ -72,12 +94,24 @@ async function registrarAuditoria({
         ip,
     ];
 
+    const runner = client || pool;
+    // Cuando corremos DENTRO de la transacción de negocio (client presente),
+    // cualquier error en este INSERT dejaría la transacción "abortada" y el
+    // COMMIT posterior se convertiría en ROLLBACK silencioso (perdiendo la
+    // operación de negocio). Aislamos la auditoría con un SAVEPOINT para que,
+    // si falla, solo se revierta la auditoría y NO la operación principal.
+    const usandoTransaccion = !!client;
     try {
-        const runner = client || pool;
+        if (usandoTransaccion) await runner.query('SAVEPOINT sp_auditoria');
         const { rows } = await runner.query(sql, params);
+        if (usandoTransaccion) await runner.query('RELEASE SAVEPOINT sp_auditoria');
         return rows[0]?.id_auditoria ?? null;
     } catch (e) {
         console.error('[auditoria] error:', e.message);
+        if (usandoTransaccion) {
+            try { await runner.query('ROLLBACK TO SAVEPOINT sp_auditoria'); }
+            catch (_) { /* noop */ }
+        }
         return null;
     }
 }

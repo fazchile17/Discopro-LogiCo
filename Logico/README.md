@@ -38,6 +38,10 @@ Toda la documentación del proyecto vive en la carpeta **`docs/`** (carpeta ofic
 | [09-prototipo.md](docs/09-prototipo.md) | UI, flujos pedidos/motorista |
 | [10-retroalimentacion.md](docs/10-retroalimentacion.md) | Usabilidad ≥5 usuarios |
 | [11-backend-funciones.md](docs/11-backend-funciones.md) | API y servicios |
+| [12-configuracion-entorno.md](docs/12-configuracion-entorno.md) | Setup paso a paso, deploy, troubleshooting |
+| [13-validacion-resultados.md](docs/13-validacion-resultados.md) | Ejecución de pruebas, obtenido vs esperado, recomendaciones |
+| [14-preguntas-defensa.md](docs/14-preguntas-defensa.md) | Q&A para la defensa |
+| [15-informe-final.md](docs/15-informe-final.md) | Portada e índice maestro del informe |
 
 
 ---

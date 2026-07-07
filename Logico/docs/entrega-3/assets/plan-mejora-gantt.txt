@@ -1,0 +1,25 @@
+gantt
+    title Plan de mejora post-entrega 3
+    dateFormat YYYY-MM-DD
+    axisFormat %d/%m
+
+    section Inmediato
+    QA-06 PS1 en RC           :done, qa06, 2026-07-02, 1d
+    PR-01 Doc incidencias     :done, pr01, 2026-07-02, 1d
+
+    section Semana 1
+    QA-01 Tests auditoria     :qa01, 2026-07-03, 2d
+    QA-05 Newman farmacia F5  :qa05, 2026-07-04, 1d
+    PR-04 Checklist entrega   :pr04, 2026-07-05, 1d
+
+    section Semana 2
+    QA-02 Tests motos evid    :qa02, 2026-07-07, 3d
+    TO-02 deploy.ps1          :to02, 2026-07-08, 2d
+
+    section Semana 3
+    QA-03 supertest CI        :qa03, 2026-07-14, 5d
+    TO-01 GitHub Actions      :to01, 2026-07-14, 5d
+
+    section Continuo
+    EQ-01 DoD ampliada        :eq01, 2026-07-03, 30d
+    PR-03 Seguridad sprint    :pr03, 2026-07-03, 60d

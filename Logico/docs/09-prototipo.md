@@ -71,12 +71,50 @@ flowchart TB
   D --> AA
 ```
 
+### 9.1.2 Matriz de cobertura proceso de negocio → interfaz (3.1.1.1)
+
+Demuestra que el **100 % de los procesos requeridos** tiene interfaz funcional cableada a la API.
+
+| # | Proceso de negocio | Pantalla(s) | Endpoint(s) | Rol |
+|---|---|---|---|---|
+| P1 | Autenticación y enrutado por rol | `index.html` | `GET /me` | Todos |
+| P2 | Visión global (KPIs, últimos pedidos) | `dashboard.html` | `GET /pedidos` | operadora, admin |
+| P3 | Crear pedido | `crear-pedido.html` | `POST /pedidos` | operadora, admin |
+| P4 | Listar / filtrar pedidos | `pedidos.html` | `GET /pedidos?estado=` | operadora, admin |
+| P5 | Ver detalle + historial | `pedido.html` | `GET /pedidos/:id` | operadora, admin, motorista (asignado) |
+| P6 | Asignar motorista | `pedido.html` | `GET /motoristas/disponibles`, `POST /rutas/asignar` | operadora, admin |
+| P7 | Reprogramar pedido | `pedido.html` | `POST /pedidos/:id/reprogramar` | operadora, admin |
+| P8 | Marcar disponibilidad | `motorista.html` | `PUT /motoristas/:id/disponibilidad` | motorista |
+| P9 | Consultar mis rutas | `motorista.html` | `GET /motoristas/:id/rutas` | motorista |
+| P10 | Ver moto asignada | `motorista.html` | `GET /motoristas/:id/moto` | motorista |
+| P11 | Iniciar ruta | `motorista.html` | `POST /rutas/:id/iniciar` | motorista |
+| P12 | Confirmar entrega (+ evidencia) | `motorista.html` | `POST /pedidos/:id/entregar`, `POST /pedidos/:id/evidencias` | motorista |
+| P13 | Registrar incidencia | `pedido.html`, `motorista.html` | `POST /pedidos/:id/incidencias` | motorista, operadora |
+| P14 | Mantenedor farmacias | `admin-farmacias.html` | CRUD `/farmacias` | admin |
+| P15 | Mantenedor flota motos | `admin-motos.html` | CRUD `/motos` | admin |
+| P16 | Gestión usuarios y roles | `admin-usuarios.html` | `/usuarios`, cambio de rol | admin |
+| P17 | Gestión motoristas | `admin-motoristas.html` | `/usuarios?rol=motorista` | admin |
+| P18 | Auditoría | `admin-auditoria.html` | `GET /audit`, `/auditoria` | admin |
+
+**Cobertura: 18/18 procesos = 100 %.** Ningún proceso del backlog (`01-metodologia-scrum.md` §1.5) queda sin interfaz.
+
 ## 9.2 Sistema de diseño
 
 - **Tipografía**: Inter (system-ui fallback).
-- **Paleta**: azul corporativo (`#1d4ed8` / `#1e3a8a` / `#3b82f6`) + escala neutra slate.
-- **Componentes**: card, kpi, badge por estado, tabla, modal.
-- **Iconografía**: símbolos Unicode para mantener cero dependencias.
+- **Paleta**: tokens CSS en `public/css/styles.css` (`:root`):
+
+| Token | Valor | Uso |
+|---|---|---|
+| `--primary` | `#1d4ed8` | Acciones primarias, enlaces |
+| `--primary-dark` | `#1e3a8a` | Sidebar, encabezados |
+| `--primary-light` | `#3b82f6` | Hover, foco |
+| `--success` / `--warning` / `--danger` / `--info` | verde / ámbar / rojo / cian | Estados y feedback |
+| `--bg` / `--card` / `--border` / `--muted` | grises slate | Superficies y texto secundario |
+
+- **Componentes reutilizables**: `card`, `kpi`, `badge` por estado, `table`, `modal`, `toast`, `btn`/`btn-danger`/`btn-success`.
+- **Consistencia**: todas las pantallas comparten un único `styles.css` y el mismo patrón `shell + sidebar + main`, garantizando coherencia visual (criterio 3.1.1.2).
+- **Iconografía**: símbolos Unicode para mantener cero dependencias y carga instantánea.
+- **Accesibilidad**: `lang="es"`, `viewport` responsive, contraste AA en texto sobre `--primary-dark`, foco visible en formularios.
 
 ### Estados visuales con badges semánticos
 

@@ -17,6 +17,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-storage.js';
 import { getAnalytics, isSupported as analyticsSupported }
     from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-analytics.js';
+import { observeTables, enhanceTables } from './tables.js';
 
 const app = initializeApp(window.LOGICO_CONFIG.firebase);
 const auth = getAuth(app);
@@ -29,6 +30,8 @@ analyticsSupported().then((ok) => {
     }
 });
 
+observeTables();
+
 export {
     app,
     auth,
@@ -36,6 +39,7 @@ export {
     onAuthStateChanged,
     signInWithEmailAndPassword,
     signOut,
+    enhanceTables,
 };
 
 /**

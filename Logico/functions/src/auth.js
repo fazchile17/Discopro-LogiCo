@@ -11,10 +11,21 @@ const bcrypt = require('bcryptjs');
 const { pool } = require('./db');
 const { ensureUsuariosTableResolved, getTblUsuarios } = require('./usuarios-table');
 
-/** Por defecto se permite auto-registro en BD para tokens Firebase válidos; en prod estricto poner AUTH_AUTO_PROVISION=false. */
+/**
+ * Auto-provisión segura por defecto: DESHABILITADA.
+ * Solo se crea el usuario en BD a partir de un token Firebase válido si
+ * AUTH_AUTO_PROVISION === 'true' (opt-in explícito). Esto evita que cualquier
+ * cuenta Firebase obtenga acceso operativo sin alta por un administrador.
+ */
 function autoProvisionEnabled() {
-    return process.env.AUTH_AUTO_PROVISION !== 'false';
+    return process.env.AUTH_AUTO_PROVISION === 'true';
 }
+
+/**
+ * En producción no se exponen mensajes internos (Firebase/BD) al cliente,
+ * para no facilitar reconocimiento a un atacante (OWASP A05/A09).
+ */
+const EXPONER_DETALLES = process.env.NODE_ENV !== 'production';
 
 function defaultProvisionRol() {
     const r = (process.env.AUTH_AUTO_PROVISION_ROL || 'operadora').trim().toLowerCase();
@@ -40,7 +51,7 @@ if (!admin.apps.length) {
     admin.initializeApp({
         projectId: process.env.GCLOUD_PROJECT
                 || process.env.GOOGLE_CLOUD_PROJECT
-                || 'logico-20f73',
+                || 'logico-app',
     });
 }
 
@@ -64,8 +75,7 @@ async function authRequired(req, res, next) {
         console.error('[auth] verifyIdToken falló:', err.code, err.message);
         return res.status(401).json({
             error: 'Token inválido o expirado.',
-            code: err.code,
-            details: err.message,
+            ...(EXPONER_DETALLES ? { code: err.code, details: err.message } : {}),
         });
     }
 
@@ -191,7 +201,10 @@ async function authRequired(req, res, next) {
         return next();
     } catch (err) {
         console.error('[auth] BD error:', err.message);
-        return res.status(500).json({ error: 'Error interno verificando usuario.', details: err.message });
+        return res.status(500).json({
+            error: 'Error interno verificando usuario.',
+            ...(EXPONER_DETALLES ? { details: err.message } : {}),
+        });
     }
 }
 

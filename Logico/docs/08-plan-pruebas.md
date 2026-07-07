@@ -1,5 +1,20 @@
 # 8. Plan de pruebas
 
+## 8.0 Alcance y cobertura (criterio 3.1.5.9)
+
+El plan cubre **todos los casos de uso** del sistema más escenarios de **borde** y **estrés**.
+La ejecución, validación y comparación obtenido vs esperado están en
+[`13-validacion-resultados.md`](13-validacion-resultados.md).
+
+| Dimensión | ¿Cubierta? | Dónde |
+|---|---|---|
+| Casos de uso funcionales (CU-P, CU-M, mantenedores) | ✅ 100 % | §8.4 + trazabilidad §13.2 |
+| Validaciones / entradas inválidas | ✅ | §8.4 #13, §13.4 |
+| Casos de borde (valores límite) | ✅ | §13.4 (B-01..B-09) |
+| Seguridad / autorización (IDOR, roles, CORS) | ✅ | §13.5 (S-01..S-10) |
+| Concurrencia / estrés | ✅ | §8.5.3 + §13.6 |
+| Rendimiento (p95) | ✅ | §8.5.1 + §13.6 |
+
 ## 8.1 Estrategia de testing — Pirámide
 
 ```

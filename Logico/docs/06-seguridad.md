@@ -40,14 +40,14 @@ sequenceDiagram
 | Login | ✓ | ✓ | ✓ |
 | Crear pedido | ✓ | ✗ | ✓ |
 | Listar pedidos (`GET /pedidos`) | ✓ (todos) | ✓ (solo filtrados por su `id`) | ✓ |
-| Detalle pedido (`GET /pedidos/:id`) | ✓ | ⚠ ver §6.11 | ✓ |
+| Detalle pedido (`GET /pedidos/:id`) | ✓ | ✓ solo asignados (C-01) | ✓ |
 | Asignar motorista | ✓ | ✗ | ✓ |
 | Iniciar ruta | ✗ | ✓ (propia) | ✓ |
 | Cambiar estado (`POST …/estado`) | ✓ | ✓ (asignado en servicio) | ✓ |
 | Marcar entregado | ✗ | ✓ (asignado en servicio) | ✓ |
 | Registrar incidencia | ✓ (cualquier pedido) | ✓ (solo ruta propia) | ✓ |
 | Reprogramar | ✓ | ✗ | ✓ |
-| Subir evidencia (API + Storage) | ✓ | ⚠ ver §6.10 | ✓ |
+| Subir evidencia (API) | ✓ | ✓ solo asignados (C-03) | ✓ |
 | Ver auditoría | ✗ | ✗ | ✓ |
 | Cambiar disponibilidad | ✗ | ✓ (propia) | ✓ |
 | Mantenedores farmacias/motos/usuarios | ✗ | ✗ | ✓ |
@@ -86,9 +86,9 @@ Y a nivel BD el trigger `fn_validar_rol_creacion_pedido` rechaza inserts donde
 | **Fuga de información** | Information Disclosure | Errores con stack trace | `errorHandler` central retorna mensajes genéricos para 500 |
 | **DoS / abuso** | Denial of Service | Spam de requests | `express-rate-limit` 120 req/min/IP |
 | **Pérdida de evidencias** | Repudiation | Operadora niega haber creado un pedido | `audit_logs` + `historial_estados.usuario_id` registran todo |
-| **Acceso a archivos privados** | Information Disclosure | Usuario autenticado adivina `pedidoId` en ruta Storage | Reglas exigen auth, **no** ownership por pedido (§6.10) |
-| **Enumeración de pedidos** | Information Disclosure | `GET /pedidos/:id` sin chequeo de asignación | Documentado §6.11; mitigación en backlog |
-| **Alta no autorizada en BD** | Elevation of Privilege | Token Firebase sin fila en `usuarios` | `AUTH_AUTO_PROVISION` (§6.10) |
+| **Acceso a archivos privados** | Information Disclosure | Usuario autenticado adivina `pedidoId` en ruta Storage | API protegida (C-03); lectura directa Storage = riesgo residual L-02 (§6.10) |
+| **Enumeración de pedidos** | Information Disclosure | `GET /pedidos/:id` sin chequeo de asignación | **Resuelto** con `puedeAccederPedido()` → 403 (C-01) |
+| **Alta no autorizada en BD** | Elevation of Privilege | Token Firebase sin fila en `usuarios` | Auto-provisión opt-in, desactivada por defecto (C-04) |
 | **Inyección por payload pesado** | DoS | JSON gigante | Express `json({ limit: '256kb' })` |
 | **Robo de credenciales** | Spoofing | Sniffing | HTTPS forzado por Hosting + Firebase Auth |
 
@@ -211,47 +211,53 @@ Son datos necesarios para la operación logística (finalidad: entrega farmacéu
 
 | # | Amenaza | Mitigación | Prioridad |
 |---|---|---|---|
-| 1 | A01 Broken Access Control | RBAC + validación en rutas/entrega/incidencia; huecos §6.10–§6.11 | P1 |
+| 1 | A01 Broken Access Control | RBAC + control de acceso a objeto (`puedeAccederPedido`); riesgo residual Storage §6.10 | P1 |
 | 2 | A03 SQL Injection | Parámetros `$1..$n` en `pg` | P1 |
 | 3 | A07 Auth failures | `verifyIdToken` | P1 |
 | 4 | A04 Cryptographic failures | HTTPS, secretos en `.env` | P2 |
-| 5 | A05 Misconfiguration | helmet, CORS, Storage deny default | P2 |
+| 5 | A05 Misconfiguration | helmet, CORS allowlist, Storage deny default, errores sin detalles en prod | P2 |
 | 6 | API4 Resource consumption | rate-limit, body 256 KB | P2 |
 | 7 | A03 XSS | `escapeHtml()` | P3 |
 | 8 | Doble asignación motorista | `FOR UPDATE` + índices únicos parciales | P1 |
 | 9 | A09 Logging failures | `audit_logs`, Cloud Logging | P3 |
 | 10 | A10 SSRF | Sin fetch a URLs del cliente | P4 |
 
-## 6.10 Limitaciones de seguridad del MVP (honestas)
+## 6.10 Endurecimiento aplicado y riesgo residual
 
-Estas limitaciones están **presentes en el código actual** y se documentan para evaluación transparente.
-La mitigación propuesta es trabajo futuro (no aplicada en este entregable académico).
+### Controles implementados en esta versión (verificados en `13-validacion-resultados.md` §13.5)
+
+| ID | Control | Implementación | Caso de prueba |
+|---|---|---|---|
+| C-01 | **IDOR detalle de pedido cerrado** | `puedeAccederPedido()` en `index.js`: motorista solo accede a pedidos de sus rutas → 403 | S-04, S-06 |
+| C-03 | **Evidencias/incidencias protegidas** | Mismo guard en `GET/POST /pedidos/:id/evidencias` e `GET …/incidencias` | S-05 |
+| C-04 | **Auto-provisión segura por defecto** | `autoProvisionEnabled()` ahora es **opt-in** (`AUTH_AUTO_PROVISION === 'true'`) | S-02 |
+| C-05 | **Errores sin detalles en producción** | `EXPONER_DETALLES = NODE_ENV !== 'production'` en `auth.js` (401/500) | S-08 |
+| C-06 | **CORS con allowlist** | `cors()` valida `Origin` contra lista (`CORS_ORIGINS` o dominios Hosting) | S-07 |
+
+### Riesgo residual conocido (transparencia para evaluación)
 
 | ID | Limitación | Comportamiento actual | Mitigación recomendada |
 |---|---|---|---|
-| L-01 | **IDOR detalle de pedido** | `GET /pedidos/:id` devuelve datos del cliente a cualquier usuario autenticado | Validar en API que motorista tenga ruta activa/histórica sobre ese `pedido_id` |
-| L-02 | **IDOR evidencias Storage** | `allow read: if request.auth != null` sin validar pedido | URLs firmadas emitidas por backend tras validar asignación, o custom claims |
-| L-03 | **Evidencias API** | `POST/GET …/evidencias` no valida asignación del motorista | Misma regla que L-01 en `evidencias.js` |
-| L-04 | **Auto-provisión** | Si `AUTH_AUTO_PROVISION` ≠ `false`, un login Firebase nuevo crea fila `operadora` | En producción: `AUTH_AUTO_PROVISION=false` y alta solo por admin |
-| L-05 | **Detalle en errores 401** | Respuesta puede incluir `details` del error Firebase | Ocultar en producción (`NODE_ENV`) |
-| L-06 | **CORS** | `origin: true` refleja cualquier origen | Lista blanca del dominio Hosting |
-| L-07 | **`/health` público** | Expone `database`, flags de tablas | Reducir campos en prod o proteger con API key interna |
+| L-02 | **IDOR lectura Storage** | `allow read: if request.auth != null` sin validar pedido | URLs firmadas emitidas por backend tras validar asignación (mitigado en capa API por C-01/C-03; ver R3 §13.8) |
+| L-07 | **`/health` público** | Expone `database` y flags de tablas | Reducir campos en prod o proteger con API key interna |
 
-### Configuración recomendada en demostración / producción
+### Configuración recomendada en producción
 
-| Variable | Valor demo seguro | Efecto |
+| Variable | Valor seguro | Efecto |
 |---|---|---|
-| `AUTH_AUTO_PROVISION` | `false` | Impide cuentas Firebase huérfanas con rol operadora |
-| `PGDATABASE` | `logico` | Evita diagnósticos en BD `postgres` vacía |
+| `AUTH_AUTO_PROVISION` | `false` (por defecto) | Impide cuentas Firebase huérfanas con rol operadora |
+| `NODE_ENV` | `production` | Oculta detalles internos de error |
+| `CORS_ORIGINS` | dominios Hosting | Bloquea orígenes no autorizados |
+| `PG_DATABASE` | `logico` | Evita operar contra BD `postgres` vacía |
 
 ## 6.11 Matriz de acceso a datos del cliente final
 
 | Recurso | operadora | motorista (diseño negocio) | motorista (implementación API actual) | admin |
 |---|---|---|---|---|
 | Listado `GET /pedidos` | Todos los activos | Solo sus rutas (filtro server) | ✅ filtrado | Todos |
-| Detalle `GET /pedidos/:id` | Sí | Solo pedidos asignados | ⚠ cualquier `id` autenticado (L-01) | Sí |
-| Teléfono / dirección en JSON | Sí | Solo si asignado | ⚠ si conoce `id` | Sí |
-| Foto Storage `/evidencias/{id}/…` | Sí si conoce ruta | Solo asignados | ⚠ cualquier auth (L-02) | Sí |
+| Detalle `GET /pedidos/:id` | Sí | Solo pedidos asignados | ✅ 403 si no asignado (C-01) | Sí |
+| Teléfono / dirección en JSON | Sí | Solo si asignado | ✅ protegido por C-01 | Sí |
+| Foto Storage `/evidencias/{id}/…` | Sí si conoce ruta | Solo asignados | ⚠ lectura directa Storage (L-02); API protegida (C-03) | Sí |
 | `GET /motoristas/disponibles` | Sí | Sí (expuesto) | ✅ | Sí |
 
 La UI del motorista (`motorista.html`) solo enlaza pedidos de sus rutas; el riesgo es **API directa**
